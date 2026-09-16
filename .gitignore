@@ -1,0 +1,35 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+backend/.venv/
+
+# Node and Next.js
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+out/
+frontend/out/
+dist/
+*.tsbuildinfo
+
+# Tooling and OS files
+.DS_Store
+*.log
+
+# Local generated/runtime data
+backend/storage/
+.superpowers/
