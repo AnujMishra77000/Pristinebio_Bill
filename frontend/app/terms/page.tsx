@@ -3,20 +3,21 @@ import { MasterDataPage } from "@/app/components/MasterDataPage";
 export default function TermsPage() {
   return (
     <MasterDataPage
+      icon="terms"
       title="Terms and conditions"
-      description="Create and view reusable invoice terms. The Seller/GST profile is used automatically."
+      description="Save reusable terms and choose the default for future invoices."
       endpoint="/terms-and-conditions"
       fields={[
         { name: "branch_id", label: "Seller/GST profile", type: "number", required: true },
         { name: "title", label: "Title", required: true },
-        { name: "body", label: "Body", type: "textarea", required: true },
+        { name: "body", label: "Terms and conditions", type: "textarea", required: true },
         { name: "is_default", label: "Default terms", type: "checkbox" },
         { name: "is_active", label: "Active", type: "checkbox" },
       ]}
       columns={[
         { key: "id", label: "ID" },
         { key: "title", label: "Title" },
-        { key: "body", label: "Body" },
+        { key: "body", label: "Terms and conditions" },
         { key: "is_default", label: "Default" },
         { key: "is_active", label: "Active" },
       ]}

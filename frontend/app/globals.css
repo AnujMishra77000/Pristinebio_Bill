@@ -3,15 +3,16 @@
 @tailwind utilities;
 
 :root {
-  --deep-peacock: #073f3b;
-  --peacock-green: #0c554c;
-  --emerald: #0b7a5e;
-  --lime: #b9e36a;
-  --page: #fcfcf8;
-  --ink: #142521;
-  --muted: #71817e;
-  --line: #e2ebe7;
-  --panel-shadow: 0 16px 48px rgba(7, 63, 59, 0.08);
+  color-scheme: light;
+  --deep-peacock: #132f40;
+  --peacock-green: #11646d;
+  --emerald: #147c86;
+  --lime: #a8ded4;
+  --page: #eef3f6;
+  --ink: #172936;
+  --muted: #64747d;
+  --line: #d7e2e5;
+  --panel-shadow: 0 4px 24px rgba(19, 47, 64, 0.045);
 }
 
 * {
@@ -20,13 +21,16 @@
 
 html {
   background: var(--page);
+  scroll-padding-top: 100px;
 }
 
 body {
   margin: 0;
   background: var(--page);
   color: var(--ink);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: anywhere;
 }
 
 button,
@@ -37,4 +41,72 @@ a {
 ::selection {
   background: var(--lime);
   color: var(--ink);
+}
+
+@layer base {
+  button, input, select, textarea { font: inherit; }
+  button, a, input, select, textarea, summary { touch-action: manipulation; }
+  button:not(:disabled), summary { cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: .55; }
+  :focus-visible { outline: 3px solid var(--emerald); outline-offset: 3px; }
+  input, select, textarea { min-width: 0; max-width: 100%; }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--emerald); }
+  input:read-only, textarea:read-only { background-color: #f2f6f8; }
+  input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: .65; }
+  textarea { line-height: 1.6; }
+  td, th { overflow-wrap: normal; }
+}
+
+@layer components {
+  .workspace-page { @apply mx-auto w-full max-w-[1680px] px-4 py-6 sm:px-7 lg:px-9 lg:py-8; }
+  .ui-panel { @apply min-w-0 rounded-2xl border border-line bg-white p-5 shadow-panel sm:p-6; }
+  .ui-button, .ui-button-primary { @apply inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-50; }
+  .ui-button { @apply border-line bg-white text-ink hover:border-emerald hover:bg-warm-green; }
+  .ui-button-primary { @apply border-transparent bg-emerald text-white hover:bg-peacock; }
+  .ui-input { @apply mt-1.5 block min-h-11 w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm font-normal text-ink outline-none transition-colors placeholder:text-slate focus:border-emerald focus:ring-2 focus:ring-emerald/15; }
+  .ui-label { @apply block min-w-0 text-xs font-semibold leading-5 text-slate; }
+  .ui-badge { @apply inline-flex items-center gap-1.5 rounded-full bg-warm-green px-2.5 py-1 text-xs font-semibold text-peacock; }
+  .ui-alert { @apply rounded-xl border border-line bg-warm-green px-4 py-3 text-sm leading-6 text-peacock-deep; }
+  .ui-empty { @apply flex min-h-36 flex-col items-center justify-center gap-3 px-5 py-8 text-center text-sm text-slate; }
+  .ui-section-title { @apply text-base font-semibold tracking-tight text-ink; }
+  .ui-form-grid { @apply grid gap-4 sm:grid-cols-2 xl:grid-cols-4; }
+  .ui-section-heading { @apply mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4; }
+  .ui-section-number { @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warm-green text-xs font-bold text-peacock; }
+  .ui-field-error { @apply mt-1.5 block text-xs font-medium leading-5 text-red-700; }
+  .ui-field [aria-invalid="true"] { @apply border-red-400 bg-red-50/40 focus:ring-red-200; }
+  .ui-field:has([required]) > .ui-field-label::after { content: " *"; @apply text-emerald; }
+  .ui-field:has(textarea) { align-self: start; }
+  .ui-table-wrap { @apply max-w-full overflow-x-auto overscroll-x-contain; }
+  .ui-table { @apply w-full text-left text-sm; }
+  .ui-table thead { @apply border-y border-line bg-warm text-[10px] uppercase tracking-wider text-slate; }
+  .ui-table th { @apply px-4 py-3 font-semibold; }
+  .ui-table td { @apply border-b border-line/60 px-4 py-4 align-top; }
+  .ui-table tbody tr:last-child td { @apply border-b-0; }
+  .ui-table tbody tr:hover { @apply bg-warm/60; }
+  .billing-section { @apply mt-7 border-t border-line pt-6; }
+  .billing-line { @apply rounded-2xl border border-line bg-warm/40 p-4 sm:p-5; }
+  .billing-savebar { @apply mt-7 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-warm px-4 py-3; }
+}
+
+.explore-dialog {
+  width: min(760px, calc(100% - 1.5rem));
+  max-width: 760px;
+  max-height: min(760px, calc(100dvh - 2rem));
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 28px 80px rgba(19, 47, 64, .18);
+}
+
+.explore-dialog::backdrop { background: rgba(19, 47, 64, .42); backdrop-filter: blur(5px); }
+
+@media (max-width: 640px) {
+  .explore-dialog { width: calc(100% - 1rem); max-height: calc(100dvh - 1rem); border-radius: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }

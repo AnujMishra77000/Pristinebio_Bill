@@ -5,6 +5,8 @@ export const appIconNames = [
   "billing",
   "sales-invoice",
   "purchase-order",
+  "reagent",
+  "reagent-purchase-order",
   "customers",
   "products",
   "seller-profile",
@@ -14,6 +16,8 @@ export const appIconNames = [
   "terms",
   "settings",
   "menu",
+  "approvals", "suppliers", "purchasers", "security", "payments", "integrations",
+  "search", "plus", "arrow-right", "close", "chevron-down", "logout", "check", "clock",
 ] as const;
 
 export type AppIconName = (typeof appIconNames)[number];
@@ -26,6 +30,20 @@ type AppIconProps = Omit<SVGProps<SVGSVGElement>, "name"> & {
 };
 
 const iconPaths: Record<AppIconName, ReactNode> = {
+  approvals: <><path d="M9 3H5v18h14V3h-4M9 2h6v4H9z" /><path d="m8 13 3 3 5-6" /></>,
+  suppliers: <><path d="M3 21V8l9-5 9 5v13H3ZM3 9h18M8 21v-7h8v7M7 11h.01M17 11h.01" /></>,
+  purchasers: <><path d="M4 20V8l8-5 8 5v12H4Z" /><path d="M8 20v-6h8v6M7 10h.01M17 10h.01" /></>,
+  security: <><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z" /><path d="m8 12 3 3 5-6" /></>,
+  payments: <><rect x="3" y="5" width="18" height="15" rx="2" /><path d="M3 9h18M15 13h6M16 16h.01" /></>,
+  integrations: <><path d="M8 3v5M16 3v5M5 8h14v3a7 7 0 0 1-14 0V8ZM12 18v4" /></>,
+  search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></>,
+  plus: <path d="M12 5v14M5 12h14" />,
+  "arrow-right": <path d="M4 12h16m-6-6 6 6-6 6" />,
+  close: <path d="m6 6 12 12M18 6 6 18" />,
+  "chevron-down": <path d="m6 9 6 6 6-6" />,
+  logout: <><path d="M9 4H4v16h5M9 12h12m-5-5 5 5-5 5" /></>,
+  check: <path d="m5 12 4 4L19 6" />,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
   dashboard: (
     <>
       <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -50,6 +68,19 @@ const iconPaths: Record<AppIconName, ReactNode> = {
     <>
       <path d="M5 7h14M5 17h14M8 4l-3 3 3 3M16 14l3 3-3 3" />
       <path d="M5 7h14v10H5z" />
+    </>
+  ),
+  reagent: (
+    <>
+      <path d="m12 4 6.9 4v8L12 20l-6.9-4V8L12 4Z" />
+      <path d="m8 8.9 4-2.3M16.4 9.4v5.2M12 17.2l-4-2.3M5.1 8 2 6M18.9 16 22 18" />
+    </>
+  ),
+  "reagent-purchase-order": (
+    <>
+      <path d="m8 3 5.2 3v6L8 15l-5.2-3V6L8 3Z" />
+      <path d="m5.2 6.7 2.8-1.6M11.2 7.2v3.6M8 12.9l-2.8-1.6M13.2 6 16 4.4" />
+      <path d="M15 12h4l3 3v7h-7V12ZM19 12v3h3M17 18h3" />
     </>
   ),
   customers: (

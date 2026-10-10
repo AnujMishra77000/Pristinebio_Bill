@@ -81,6 +81,29 @@ def test_manager_can_create_product_with_decimal_rates(client, auth_headers, man
     assert body["cess_rate"] == "0.00"
 
 
+def test_product_catalog_creation_uses_compatibility_defaults_for_hidden_unit_and_rate(
+    client, auth_headers, manager_user, branch
+):
+    response = client.post(
+        "/api/v1/products",
+        headers=auth_headers(manager_user),
+        json={
+            "branch_id": branch.id,
+            "name": "Catalog-only Product",
+            "description": "Reusable product classification",
+            "hsn_sac": "29181590",
+            "gst_rate": "18.00",
+            "cess_rate": "0.00",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["manufacturer_id"] is None
+    assert response.json()["manufacturer_product_code"] is None
+    assert response.json()["unit"] == "kg"
+    assert response.json()["base_rate"] == "0.0000"
+
+
 def test_staff_cannot_create_product_for_unassigned_branch(
     client, auth_headers, staff_user, other_branch
 ):

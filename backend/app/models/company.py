@@ -41,6 +41,7 @@ class Branch(TimestampMixin, Base):
     postal_code: Mapped[str] = mapped_column(String(20), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(30))
     email: Mapped[str | None] = mapped_column(String(255))
+    secondary_email: Mapped[str | None] = mapped_column(String(255))
     bank_name: Mapped[str | None] = mapped_column(String(255))
     bank_branch_name: Mapped[str | None] = mapped_column(String(255))
     bank_account_name: Mapped[str | None] = mapped_column(String(255))

@@ -4,17 +4,19 @@
     <meta charset="utf-8" />
     <meta name="generator" content="{{ template_version }}" />
     <title>{{ invoice.document_title }}{% if invoice.invoice_number %} - {{ invoice.invoice_number }}{% endif %}</title>
-    <style>{{ css }}</style>
+    <style>{{ css | safe }}</style>
   </head>
   <body>
     {% for copy_label in invoice.copy_labels %}
-    <section class="invoice-copy">
+    {% for page_lines in line_pages %}
+    {% set final_product_page = loop.last %}
+    <section class="invoice-copy short-copy invoice-page" data-product-page="{{ loop.index }}">
       <div class="copy-label">{{ copy_label }}</div>
 
       <div class="invoice-flow">
         <div class="invoice-title">{{ invoice.document_title }}</div>
         <div class="invoice-header">
-          <div class="seller-header">
+          <div class="seller-column">
             <div class="seller-logo">
               {% if invoice.seller.logo_data_uri %}
               <img src="{{ invoice.seller.logo_data_uri }}" alt="{{ invoice.seller.legal_name }} logo" />
@@ -24,132 +26,256 @@
               <span class="seller-mark">{{ invoice.seller.mark_text }}</span>
               {% endif %}
             </div>
-            {% if invoice.seller.trade_name %}<p class="seller-trade-name">{{ invoice.seller.trade_name }}</p>{% endif %}
-            <h1 class="seller-name">{{ invoice.seller.legal_name }}</h1>
-            {% for line in invoice.seller.address_lines %}<p class="seller-lines">{{ line }}</p>{% endfor %}
-            <p class="seller-lines"><span class="meta-label">GSTIN:</span> {{ invoice.seller.gstin }}</p>
-            {% if invoice.seller.contact %}<p class="seller-contact"><span class="meta-label">Contact:</span> {{ invoice.seller.contact }}</p>{% endif %}
-            {% if invoice.seller.pickup_address %}<p class="pickup-address"><span class="meta-label">Pickup Address:</span> {{ invoice.seller.pickup_address }}</p>{% endif %}
+            <div class="seller-header">
+              <div class="seller-detail-stack">
+                {% if invoice.seller.trade_name %}<p class="seller-trade-name">{{ invoice.seller.trade_name }}</p>{% endif %}
+                <h1 class="seller-name">{{ invoice.seller.legal_name }}</h1>
+                <div class="seller-address-block">
+                  {% for line in invoice.seller.address_lines %}<p class="seller-lines">{% if loop.first %}<span class="meta-label">Add:</span> {% endif %}{{ line }}</p>{% endfor %}
+                </div>
+                <div class="seller-facts">
+                  <p class="seller-lines"><span class="meta-label">GSTIN:</span> <span class="meta-value">{{ invoice.seller.gstin }}</span></p>
+                  {% if invoice.seller.contact %}<p class="seller-contact"><span class="meta-label">Contact:</span> <span class="meta-value">{{ invoice.seller.contact }}</span></p>{% endif %}
+                  {% for email in invoice.seller.email_addresses %}<p class="seller-email"><span class="meta-label">Email:</span> <span class="meta-value">{{ email }}</span></p>{% endfor %}
+                  {% if invoice.seller.state_code %}<p class="seller-lines seller-state-code"><span class="meta-label">State Code:</span> {{ invoice.seller.state_code }}</p>{% endif %}
+                  {% if invoice.seller.state %}<p class="seller-lines seller-state"><span class="meta-label">State:</span> {{ invoice.seller.state.upper() }}</p>{% endif %}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="invoice-meta">
+            <div class="meta-card-title">Invoice Details</div>
+            {% if invoice.document_type != "sales" and (invoice.signed_qr_data or invoice.irn) %}
             <div class="irn-block">
               {% if invoice.signed_qr_data %}<img class="qr" src="{{ invoice.signed_qr_data }}" alt="Signed QR" />{% endif %}
               {% if invoice.irn %}<span class="meta-label">IRN No.:</span><span class="irn-value">{{ invoice.irn }}</span>{% endif %}
             </div>
-            <p class="meta-row"><span class="meta-label">{{ invoice.document_number_label }}:</span> <span class="meta-value">{{ invoice.invoice_number or "" }}</span></p>
-            <p class="meta-row"><span class="meta-label">{{ invoice.document_date_label }}:</span> <span class="meta-value">{{ format_date(invoice.invoice_date) }}</span></p>
-            <p class="meta-row"><span class="meta-label">Delivery Note Date:</span> <span class="meta-value">{{ format_date(invoice.delivery_note_date) }}</span></p>
-            <p class="meta-row"><span class="meta-label">Dispatched through:</span> <span class="meta-value">{{ invoice.transport_mode or "" }}</span></p>
-            {% if invoice.payment_terms %}<p class="meta-row"><span class="meta-label">Payment Terms:</span> <span class="meta-value">{{ invoice.payment_terms }}</span></p>{% endif %}
-            {% if invoice.po_number %}<p class="meta-row"><span class="meta-label">PO No:</span> <span class="meta-value">{{ invoice.po_number }}</span></p>{% endif %}
-            {% if invoice.po_date %}<p class="meta-row"><span class="meta-label">PO Date:</span> <span class="meta-value">{{ format_date(invoice.po_date) }}</span></p>{% endif %}
-            {% if invoice.e_way_bill_number %}<p class="meta-row"><span class="meta-label">E-Way Bill No.:</span> <span class="meta-value">{{ invoice.e_way_bill_number }}</span></p>{% endif %}
-            {% if invoice.e_way_bill_date %}<p class="meta-row"><span class="meta-label">E-Way Bill Date:</span> <span class="meta-value">{{ format_date(invoice.e_way_bill_date) }}</span></p>{% endif %}
-            {% if invoice.acknowledgement_number %}<p class="meta-row"><span class="meta-label">Ack. No.:</span> <span class="meta-value">{{ invoice.acknowledgement_number }}</span></p>{% endif %}
-            {% if invoice.acknowledgement_date %}<p class="meta-row"><span class="meta-label">Ack. Date:</span> <span class="meta-value">{{ format_date(invoice.acknowledgement_date) }}</span></p>{% endif %}
+            {% endif %}
+            <div class="meta-detail-stack">
+              {% if invoice.document_type == "sales" %}
+              <div class="meta-row"><span class="meta-label">PO No:</span><span class="meta-value">{{ invoice.po_number or "" }}</span></div>
+              <div class="meta-row"><span class="meta-label">{{ invoice.document_number_label }}:</span><span class="meta-value">{{ invoice.invoice_number or "" }}</span></div>
+              <div class="meta-row"><span class="meta-label">{{ invoice.document_date_label }}:</span><span class="meta-value">{{ format_date(invoice.invoice_date) }}</span></div>
+              <div class="meta-row"><span class="meta-label">Delivery Note Date:</span><span class="meta-value">{{ format_date(invoice.delivery_note_date) }}</span></div>
+              <div class="meta-row"><span class="meta-label">Dispatched through:</span><span class="meta-value">{{ invoice.transport_mode or "" }}</span></div>
+              <div class="meta-row"><span class="meta-label">Vehicle No.:</span><span class="meta-value">{{ invoice.vehicle_number or "" }}</span></div>
+              <div class="meta-row"><span class="meta-label">LR No.:</span><span class="meta-value">{{ invoice.lr_number or "" }}</span></div>
+              <div class="meta-row"><span class="meta-label">Payment Terms:</span><span class="meta-value">{{ invoice.payment_terms or "" }}</span></div>
+              {% else %}
+              <div class="meta-row"><span class="meta-label">{{ invoice.document_number_label }}:</span><span class="meta-value">{{ invoice.invoice_number or "" }}</span></div>
+              <div class="meta-row"><span class="meta-label">{{ invoice.document_date_label }}:</span><span class="meta-value">{{ format_date(invoice.invoice_date) }}</span></div>
+              {% if invoice.document_type == "purchase_order" %}
+              {% if invoice.expected_delivery_date %}<div class="meta-row"><span class="meta-label">Expected Delivery Date:</span><span class="meta-value">{{ format_date(invoice.expected_delivery_date) }}</span></div>{% endif %}
+              {% else %}
+              <div class="meta-row"><span class="meta-label">Delivery Note Date:</span><span class="meta-value">{{ format_date(invoice.delivery_note_date) }}</span></div>
+              {% endif %}
+              <div class="meta-row"><span class="meta-label">Dispatched through:</span><span class="meta-value">{{ invoice.transport_mode or "" }}</span></div>
+              {% if invoice.payment_terms %}<div class="meta-row"><span class="meta-label">Payment Terms:</span><span class="meta-value">{{ invoice.payment_terms }}</span></div>{% endif %}
+              {% if invoice.po_number %}<div class="meta-row"><span class="meta-label">PO No:</span><span class="meta-value">{{ invoice.po_number }}</span></div>{% endif %}
+              {% if invoice.po_date %}<div class="meta-row"><span class="meta-label">PO Date:</span><span class="meta-value">{{ format_date(invoice.po_date) }}</span></div>{% endif %}
+              {% if invoice.e_way_bill_number %}<div class="meta-row"><span class="meta-label">E-Way Bill No.:</span><span class="meta-value">{{ invoice.e_way_bill_number }}</span></div>{% endif %}
+              {% if invoice.e_way_bill_date %}<div class="meta-row"><span class="meta-label">E-Way Bill Date:</span><span class="meta-value">{{ format_date(invoice.e_way_bill_date) }}</span></div>{% endif %}
+              {% if invoice.acknowledgement_number %}<div class="meta-row"><span class="meta-label">Ack. No.:</span><span class="meta-value">{{ invoice.acknowledgement_number }}</span></div>{% endif %}
+              {% if invoice.acknowledgement_date %}<div class="meta-row"><span class="meta-label">Ack. Date:</span><span class="meta-value">{{ format_date(invoice.acknowledgement_date) }}</span></div>{% endif %}
+              {% if invoice.document_type == "reagent" %}<div class="meta-row"><span class="meta-label">Vehicle No.:</span><span class="meta-value">{{ invoice.vehicle_number or "" }}</span></div>{% endif %}
+              {% endif %}
+            </div>
           </div>
         </div>
 
         <div class="party-grid">
           <div class="party-panel">
             <h2 class="party-heading">{{ invoice.buyer.heading }}</h2>
-            {% if invoice.buyer.name %}<p class="party-name">{{ invoice.buyer.name }}</p>{% endif %}
-            {% for line in invoice.buyer.address_lines %}<p class="party-line">{{ line }}</p>{% endfor %}
+            {% if invoice.buyer.name %}<p class="party-name{% if invoice.document_type == 'sales' %} sales-party-name{% elif invoice.document_title == 'Purchase Order' %} po-party-name{% endif %}">{{ invoice.buyer.name }}</p>{% endif %}
+            {% for line in invoice.buyer.address_lines %}<p class="party-line">{% if loop.first %}<span class="meta-label">Add:</span> {% endif %}{{ line }}</p>{% endfor %}
             {% if invoice.buyer.gstin %}<p class="party-line"><span class="meta-label">GSTIN:</span> {{ invoice.buyer.gstin }}</p>{% endif %}
-            {% if invoice.buyer.contact %}<p class="party-line"><span class="meta-label">Contact:</span> {{ invoice.buyer.contact }}</p>{% endif %}
+            {% if invoice.buyer.state_code %}<p class="party-line"><span class="meta-label">State Code:</span> {{ invoice.buyer.state_code }}</p>{% endif %}
+            {% if invoice.buyer.pan %}<p class="party-line"><span class="meta-label">PAN:</span> {{ invoice.buyer.pan }}</p>{% endif %}
+            {% if invoice.buyer.contact %}<p class="party-line party-contact"><span class="meta-label">Contact:</span> {{ invoice.buyer.contact }}</p>{% endif %}
+            {% if invoice.buyer.email %}<p class="party-line party-email"><span class="meta-label">Email:</span> {{ invoice.buyer.email }}</p>{% endif %}
           </div>
           <div class="party-panel">
             <h2 class="party-heading">{{ invoice.consignee.heading }}</h2>
-            {% if invoice.consignee.name %}<p class="party-name">{{ invoice.consignee.name }}</p>{% endif %}
-            {% for line in invoice.consignee.address_lines %}<p class="party-line">{{ line }}</p>{% endfor %}
+            {% if invoice.consignee.name %}<p class="party-name{% if invoice.document_type == 'sales' %} sales-party-name{% elif invoice.document_title == 'Purchase Order' %} po-party-name{% endif %}">{{ invoice.consignee.name }}</p>{% endif %}
+            {% for line in invoice.consignee.address_lines %}<p class="party-line">{% if loop.first %}<span class="meta-label">Add:</span> {% endif %}{{ line }}</p>{% endfor %}
             {% if invoice.consignee.gstin %}<p class="party-line"><span class="meta-label">GSTIN:</span> {{ invoice.consignee.gstin }}</p>{% endif %}
+            {% if invoice.consignee.state_code %}<p class="party-line"><span class="meta-label">State Code:</span> {{ invoice.consignee.state_code }}</p>{% endif %}
+            {% if invoice.consignee.pan %}<p class="party-line"><span class="meta-label">PAN:</span> {{ invoice.consignee.pan }}</p>{% endif %}
+            {% if invoice.consignee.contact %}<p class="party-line party-contact"><span class="meta-label">Contact:</span> {{ invoice.consignee.contact }}</p>{% endif %}
+            {% if invoice.consignee.email %}<p class="party-line party-email"><span class="meta-label">Email:</span> {{ invoice.consignee.email }}</p>{% endif %}
             {% for line in invoice.consignee.shipment_lines %}<p class="shipment-line">{{ line }}</p>{% endfor %}
           </div>
         </div>
 
-        <table class="items-table">
+        <table class="items-table{% if invoice.document_type == 'sales' %} sales-items-table{% elif invoice.document_type == 'reagent' %} reagent-items-table{% endif %}">
         <colgroup>
+          {% if invoice.document_type == "reagent" %}
+          <col style="width: 5%" />
+          <col style="width: 31%" />
+          <col style="width: 10%" />
           <col style="width: 6%" />
-          <col style="width: 25%" />
-          <col style="width: 8%" />
-          <col style="width: 10%" />
-          <col style="width: 8%" />
-          <col style="width: 9%" />
-          <col style="width: 9%" />
           <col style="width: 7%" />
-          <col style="width: 8%" />
+          <col style="width: 9%" />
           <col style="width: 10%" />
+          <col style="width: 10%" />
+          <col style="width: 12%" />
+          {% else %}
+          <col style="width: 6%" />
+          <col style="width: 30%" />
+          <col style="width: 14%" />
+          <col style="width: 14%" />
+          <col style="width: 12%" />
+          <col style="width: 7%" />
+          <col style="width: 17%" />
+          {% endif %}
         </colgroup>
         <thead>
           <tr class="continuation-identity">
-            <th scope="col" colspan="10">{{ invoice.document_title }} · {{ invoice.document_number_label }}: {{ invoice.invoice_number or "" }} · {{ invoice.document_date_label }}: {{ format_date(invoice.invoice_date) }}</th>
+            <th scope="col" colspan="{{ 9 if invoice.document_type == 'reagent' else 7 }}">{{ invoice.document_title }} · {{ invoice.document_number_label }}: {{ invoice.invoice_number or "" }} · {{ invoice.document_date_label }}: {{ format_date(invoice.invoice_date) }}</th>
           </tr>
           <tr class="item-heading">
+            {% if invoice.document_type == "reagent" %}
+            <th scope="col">Sr. No.</th>
+            <th scope="col">Item Description</th>
+            <th scope="col">HSN/SAC</th>
+            <th scope="col">GST</th>
+            <th scope="col">Quantity</th>
+            <th scope="col">Pack/Size</th>
+            <th scope="col">Rate</th>
+            <th scope="col">Disc %</th>
+            <th scope="col">Amount</th>
+            {% else %}
             <th scope="col">S No.</th>
             <th scope="col">Item Details</th>
             <th scope="col">HSN /SAC</th>
             <th scope="col">Quantity</th>
-            <th scope="col">Base Rate</th>
-            <th scope="col">Other Charge</th>
-            <th scope="col">Discount</th>
+            <th scope="col">Rate</th>
             <th scope="col">GST (%)</th>
-            <th scope="col">Cess</th>
             <th scope="col">Amount</th>
+            {% endif %}
           </tr>
         </thead>
         <tbody>
-          {% for line in invoice.lines %}
+          {% for line in page_lines %}
           <tr>
+            {% if invoice.document_type == "reagent" %}
             <td class="center">{{ line.serial_number }}</td>
+            <td class="item-description">
+              <div class="item-description-layout">
+                <div class="item-description-copy">
+                  <div class="item-product-name">{{ line.product_name or line.description }}</div>
+                  {% set manufacturer_label = line.manufacturer_name or line.manufacturer_code %}
+                  {% if manufacturer_label or line.article_no %}
+                  <div class="item-secondary-line">{% if manufacturer_label %}MFG: {{ manufacturer_label }}{% endif %}{% if manufacturer_label and line.article_no %}, {% endif %}{% if line.article_no %}Artical No.: {{ line.article_no }}{% endif %}</div>
+                  {% endif %}
+                </div>
+                  {% if line.cgst_amount or line.sgst_amount %}
+                <div class="item-tax-breakdown">
+                  <div class="item-tax-row">CGST {{ format_percentage(line.cgst_rate) }}%</div>
+                  <div class="item-tax-row">SGST {{ format_percentage(line.sgst_rate) }}%</div>
+                </div>
+                  {% elif line.igst_amount %}
+                <div class="item-tax-breakdown">
+                  <div class="item-tax-row">IGST {{ format_percentage(line.igst_rate) }}%</div>
+                </div>
+                  {% endif %}
+              </div>
+            </td>
+            <td>{{ line.hsn_sac }}</td>
+            <td class="right">{{ format_rate(line.gst_rate) }}%</td>
+            <td class="right"><strong>{{ format_quantity(line.quantity) }}</strong></td>
+            <td class="item-pack-size">{{ line.pack_size or "" }}</td>
+            <td class="right">{{ format_rate(line.base_rate) }}</td>
+            <td class="item-discount-cell">{{ format_percentage(line.discount_percent) }}%<div class="item-discount-amount">@ {{ format_money(line.discount) }}</div></td>
+            <td class="right item-amount-cell">
+              <div class="item-amount-layout">
+                <div class="item-goods-amount">{{ format_money(line.amount) }}</div>
+                {% if line.cgst_amount or line.sgst_amount %}
+                <div class="item-tax-amounts">
+                  <div class="item-tax-amount-row">{{ format_money(line.cgst_amount) }}</div>
+                  <div class="item-tax-amount-row">{{ format_money(line.sgst_amount) }}</div>
+                </div>
+                {% elif line.igst_amount %}
+                <div class="item-tax-amounts">
+                  <div class="item-tax-amount-row">{{ format_money(line.igst_amount) }}</div>
+                </div>
+                {% endif %}
+              </div>
+            </td>
+            {% else %}
+            <td class="center">{{ line.serial_number }}</td>
+            {% if invoice.document_type == "sales" %}
+            <td class="item-description">
+              <div class="item-product-name">{{ line.product_name or line.description }}</div>
+              {% if line.product_name and line.description and line.description.strip() and line.description.strip() != line.product_name.strip() %}
+              <div class="sales-item-description">{{ line.description }}</div>
+              {% endif %}
+            </td>
+            {% else %}
             <td class="item-description">{{ line.description }}</td>
+            {% endif %}
             <td>{{ line.hsn_sac }}</td>
             <td class="right"><span>{{ format_quantity(line.quantity) }}</span><span class="quantity-unit">{{ line.unit }}</span></td>
             <td class="right">{{ format_rate(line.base_rate) }}</td>
-            <td class="right">{{ format_money(line.other_charge) }}</td>
-            <td class="right">{{ format_money(line.discount) }}</td>
             <td class="right">{{ format_rate(line.gst_rate) }}<span class="quantity-unit">%</span></td>
-            <td class="right">{{ format_money(line.cess) }}</td>
             <td class="right">{{ format_money(line.amount) }}</td>
+            {% endif %}
           </tr>
           {% endfor %}
         </tbody>
       </table>
       </div>
 
-      <div class="total-quantity"><span class="meta-label">Total Quantity:</span> {{ format_quantity(invoice.total_quantity) }}</div>
-
+      {% if is_reagent_purchase_order %}<div class="reagent-po-final-block">{% endif %}
       <div class="summary-zone">
-        <div>
-          <div class="amount-words">
-            <div class="amount-words-label"><span class="meta-label">Total Amount in words:</span></div>
-            <div>{{ invoice.amount_in_words }}</div>
-          </div>
-          {% if invoice.bank_lines %}
-          <div class="settlement-block">
-            {% for line in invoice.bank_lines %}<p class="settlement-line">{{ line }}</p>{% endfor %}
-          </div>
-          {% endif %}
-          {% if invoice.transporter_lines %}
-          <div class="settlement-block">
-            {% for line in invoice.transporter_lines %}<p class="settlement-line">{{ line }}</p>{% endfor %}
-          </div>
-          {% endif %}
+        <div class="amount-words">
+          <div class="amount-words-line"><span class="amount-words-label meta-label">Total Amount in words:</span> <span{% if not final_product_page %} class="continuation-value"{% endif %}>{{ invoice.amount_in_words if final_product_page else "" }}</span></div>
         </div>
-        <table class="tax-summary">
-          <tbody>
-            {% for label, value in invoice.tax_rows %}<tr><td>{{ label }}</td><td>{{ format_money(value) }}</td></tr>{% endfor %}
-            <tr class="grand-total"><td>Total Invoice Amount</td><td>{{ format_money(invoice.final_total) }}</td></tr>
-          </tbody>
-        </table>
+        <div class="summary-details-row">
+          <div class="summary-left-column">
+            {% if invoice.bank_detail_rows or invoice.bank_lines %}
+            <div class="bank-details-footer">
+              <h2 class="bank-details-heading">Bank Details</h2>
+              {% if invoice.bank_detail_rows %}
+                {% for label, value in invoice.bank_detail_rows %}
+                <div class="bank-detail-row"><span class="bank-detail-label">{{ label }}</span><span class="bank-detail-colon">:</span><span class="bank-detail-value">{{ value }}</span></div>
+                {% endfor %}
+              {% else %}
+                {% for line in invoice.bank_lines %}<div class="bank-detail-row bank-detail-line">{{ line }}</div>{% endfor %}
+              {% endif %}
+            </div>
+            {% endif %}
+            {% if invoice.transporter_lines %}
+            <div class="settlement-block summary-settlement">
+            {% for line in invoice.transporter_lines %}<p class="settlement-line">{{ line }}</p>{% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          <div class="quantity-summary">
+            <div class="total-quantity"><span class="meta-label">Total Quantity:</span> {{ format_quantity(invoice.total_quantity) if final_product_page else "" }}</div>
+            <table class="tax-summary">
+              <tbody>
+                {% for label, value in invoice.tax_rows if label not in ("Cess Amount", "Discount Value") %}<tr><td>{{ label }}</td><td>{{ format_money(value) if final_product_page else "" }}</td></tr>{% endfor %}
+                <tr class="grand-total"><td>Total Invoice Amount</td><td>{{ format_money(invoice.final_total) if final_product_page else "" }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="final-zone">
-        {% if invoice.terms %}
+        {% if invoice.terms or invoice.document_title in ("Tax Invoice", "Purchase Order") %}
         <div class="terms">
           <h2 class="terms-heading">Terms and Conditions:</h2>
           <ol class="terms-list">
             {% for term in invoice.terms %}<li>{{ term }}</li>{% endfor %}
+            {% if invoice.document_title in ("Tax Invoice", "Purchase Order") %}
+            <li>All payments must be made via bank transfer only. Cash payments are not accepted.</li>
+            <li>The goods once sold can not be returned and/or exchanged.</li>
+            <li>All the Goods are to be checked at our works. The company is not responsible for any loss of the goods during the transport.</li>
+            <li>Weightment done at our location will be final for accounting purpose.</li>
+            {% endif %}
           </ol>
         </div>
         {% endif %}
@@ -163,14 +289,16 @@
         {% endif %}
 
         <div class="invoice-footer">
-          <div class="canvatech-credit">By Canvatech</div>
+          <div class="canvatech-credit"><span class="canvatech-prefix">By</span> <span class="canvatech-name">Canvatech</span></div>
           <div class="invoice-footer-details">
             {% if invoice.powered_by %}<div class="powered-by">Powered by {{ invoice.powered_by }}</div>{% else %}<div></div>{% endif %}
             <div class="computer-generated">This is a Computer Generated {{ invoice.document_footer_label }}</div>
           </div>
         </div>
       </div>
+      {% if is_reagent_purchase_order %}</div>{% endif %}
     </section>
+    {% endfor %}
     {% endfor %}
   </body>
 </html>

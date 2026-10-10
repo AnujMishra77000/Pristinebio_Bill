@@ -1,42 +1,45 @@
-import { MasterDataPage } from "@/app/components/MasterDataPage";
+"use client";
+
+import { MasterDataPage, type FieldConfig } from "@/app/components/MasterDataPage";
 
 export default function ProductsPage() {
+  const fields: FieldConfig[] = [
+    { name: "branch_id", label: "Seller/GST profile", type: "number", required: true },
+    { name: "name", label: "Product name", type: "textarea", required: true },
+    { name: "description", label: "Description", type: "textarea" },
+    { name: "hsn_sac", label: "HSN/SAC", required: true },
+    { name: "gst_rate", label: "GST rate (%)", required: true },
+    { name: "cess_rate", label: "Cess rate (%)", required: true },
+    { name: "is_active", label: "Active", type: "checkbox" },
+  ];
+
   return (
     <MasterDataPage
+      icon="products"
       title="Products"
-      description="Create and view product masters with HSN/SAC, unit, base rate, GST rate, and cess rate. The Seller/GST profile is used automatically."
+      description="Maintain reusable product names, descriptions, HSN/SAC classification and tax rates."
       endpoint="/products"
-      fields={[
-        { name: "branch_id", label: "Seller/GST profile", type: "number", required: true },
-        { name: "name", label: "Product name", required: true },
-        { name: "description", label: "Description", type: "textarea" },
-        { name: "hsn_sac", label: "HSN/SAC", required: true },
-        { name: "unit", label: "Unit", required: true },
-        { name: "base_rate", label: "Base rate", required: true },
-        { name: "gst_rate", label: "GST rate", required: true },
-        { name: "cess_rate", label: "Cess rate", required: true },
-        { name: "is_active", label: "Active", type: "checkbox" },
-      ]}
+      fields={fields}
       columns={[
         { key: "id", label: "ID" },
         { key: "name", label: "Product" },
         { key: "hsn_sac", label: "HSN/SAC" },
-        { key: "unit", label: "Unit" },
-        { key: "base_rate", label: "Base rate" },
         { key: "gst_rate", label: "GST %" },
         { key: "cess_rate", label: "Cess %" },
+        { key: "is_active", label: "Status" },
       ]}
-      initialForm={{
-        branch_id: "",
-        name: "",
-        description: "",
-        hsn_sac: "",
-        unit: "",
-        base_rate: "",
-        gst_rate: "",
-        cess_rate: "0",
-        is_active: true,
-      }}
+      initialForm={{ branch_id: "", name: "", description: "", hsn_sac: "", gst_rate: "", cess_rate: "0", is_active: true }}
+      editable
+      recordActions={{ activeField: "is_active" }}
+      recordToForm={(record) => ({
+        branch_id: String(record.branch_id ?? ""),
+        name: String(record.name ?? ""),
+        description: String(record.description ?? ""),
+        hsn_sac: String(record.hsn_sac ?? ""),
+        gst_rate: String(record.gst_rate ?? ""),
+        cess_rate: String(record.cess_rate ?? "0"),
+        is_active: Boolean(record.is_active),
+      })}
     />
   );
 }

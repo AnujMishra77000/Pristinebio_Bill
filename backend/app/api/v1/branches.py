@@ -10,6 +10,7 @@ from app.models.company import Branch, Company
 from app.models.enums import UserRole
 from app.models.user import User, UserBranchAssignment
 from app.schemas.branch import BranchCreate, BranchRead, BranchUpdate
+from app.services.account_security import audit, snapshot
 
 
 router = APIRouter()
@@ -35,12 +36,14 @@ def _ensure_gstin_is_unique(db: Session, gstin: str, branch_id: int | None = Non
 def create_branch(
     request: BranchCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
 ) -> Branch:
     _get_company_or_422(db, request.company_id)
     _ensure_gstin_is_unique(db, request.gstin)
     branch = Branch(**request.model_dump())
     db.add(branch)
+    db.flush()
+    audit(db,actor,"seller_gst_profile_created","seller_profile",branch.id,after=snapshot(branch))
     db.commit()
     db.refresh(branch)
     return branch
@@ -77,11 +80,12 @@ def update_branch(
     branch_id: int,
     request: BranchUpdate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
 ) -> Branch:
-    branch = db.get(Branch, branch_id)
+    branch = db.scalar(select(Branch).where(Branch.id==branch_id).with_for_update().execution_options(populate_existing=True))
     if branch is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Seller/GST profile not found")
+    before=snapshot(branch)
     updates = request.model_dump(exclude_unset=True)
     if "company_id" in updates:
         _get_company_or_422(db, updates["company_id"])
@@ -89,6 +93,8 @@ def update_branch(
         _ensure_gstin_is_unique(db, updates["gstin"], branch.id)
     for field, value in updates.items():
         setattr(branch, field, value)
+    db.flush()
+    audit(db,actor,"seller_gst_profile_updated","seller_profile",branch.id,before=before,after=snapshot(branch))
     db.commit()
     db.refresh(branch)
     return branch

@@ -78,3 +78,30 @@ def test_line_other_charge_is_included_in_the_taxable_value_and_pdf_snapshot():
     assert result.lines[0].other_charge == Decimal("5.00")
     assert result.lines[0].taxable_value == Decimal("305.00")
     assert result.taxable_value == Decimal("305.00")
+
+
+def test_reagent_line_percentage_discount_is_calculated_with_decimal_rounding():
+    result = calculate_invoice(
+        branch_state_code="36",
+        place_of_supply_state_code="36",
+        lines=[
+            InvoiceCalculationLine(
+                description="Laboratory reagent",
+                part_no="RX-001",
+                hsn_sac="38221990",
+                quantity=Decimal("3.000"),
+                unit="BTL",
+                rate=Decimal("199.99"),
+                discount_amount=Decimal("0.00"),
+                discount_percent=Decimal("12.50"),
+                gst_rate=Decimal("18.00"),
+                cess_rate=Decimal("0.00"),
+            )
+        ],
+    )
+
+    assert result.lines[0].part_no == "RX-001"
+    assert result.lines[0].discount_percent == Decimal("12.50")
+    assert result.lines[0].discount_amount == Decimal("75.00")
+    assert result.lines[0].taxable_value == Decimal("524.97")
+    assert result.taxable_value == Decimal("524.97")

@@ -1,14 +1,36 @@
 "use client";
 
-import type { TokenResponse } from "@/app/lib/types";
+import type { SessionResponse, User } from "@/app/lib/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 const SESSION_STORAGE_KEY = "pristine-bio-billing.session";
 export const SESSION_CHANGED_EVENT = "pristine-bio-billing.session-changed";
-let refreshPromise: Promise<TokenResponse | null> | null = null;
+let refreshPromise: Promise<SessionResponse | null> | null = null;
+let validationPromise: Promise<SessionResponse | null> | null = null;
+let csrfPromise: Promise<string> | null = null;
+let csrfToken: string | null = null;
+let session: SessionResponse | null = null;
+let reauthenticationRequired = false;
+let explicitlyLoggedOut = false;
+let sessionRevision = 0;
+let csrfRevision = 0;
+let channel: BroadcastChannel | null = null;
+let initialized = false;
+let validationError: string | null = null;
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message); this.name = "ApiError"; }
+  constructor(public status: number, message: string, public detail?: unknown) { super(message); this.name = "ApiError"; }
+}
+
+export function createIdempotencyKey(): string {
+  if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.getRandomValues === "function") {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 function formatApiDetail(detail: unknown): string | null {
@@ -34,25 +56,71 @@ function formatApiDetail(detail: unknown): string | null {
   return messages.length > 0 ? messages.join("; ") : null;
 }
 
-export function getStoredSession(): TokenResponse | null {
-  if (typeof window === "undefined") return null;
-  const value = window.localStorage.getItem(SESSION_STORAGE_KEY);
-  if (!value) return null;
-  try { return JSON.parse(value) as TokenResponse; } catch { return null; }
+function initializeSession(): void {
+  if (initialized || typeof window === "undefined") return;
+  initialized = true;
+  try { window.localStorage.removeItem(SESSION_STORAGE_KEY); } catch { /* Storage may be disabled. */ }
+  if (typeof BroadcastChannel !== "undefined") {
+    channel = new BroadcastChannel("pristine-bio-billing.session");
+    channel.addEventListener("message", (event: MessageEvent<unknown>) => {
+      const message = event.data as { type?: string } | null;
+      if (message?.type === "logout") clearSession(false);
+      else if (message?.type === "changed") {
+        sessionRevision++;
+        invalidateCsrf();
+        void validateSession();
+      }
+    });
+  }
+}
+
+// Compatibility name for existing consumers; metadata is now memory-only.
+export function getStoredSession(): SessionResponse | null { initializeSession(); return session; }
+export function getSessionState() {
+  initializeSession();
+  return { session, reauthenticationRequired, explicitlyLoggedOut, validationError };
+}
+export function isSessionReady(): boolean {
+  const user = session?.user;
+  return Boolean(user?.is_active && !user.password_change_required && !reauthenticationRequired);
 }
 
 function notifySessionChanged(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
-export function storeSession(session: TokenResponse): void {
-  window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+function acceptSession(next: SessionResponse): void {
+  session = next;
+  explicitlyLoggedOut = false;
+  reauthenticationRequired = false;
+  validationError = null;
   notifySessionChanged();
 }
 
-export function clearSession(): void {
-  window.localStorage.removeItem(SESSION_STORAGE_KEY);
+function invalidateCsrf(): void {
+  csrfRevision++;
+  csrfToken = null;
+  csrfPromise = null;
+}
+
+function clearSession(broadcast = true): void {
+  session = null;
+  explicitlyLoggedOut = true;
+  reauthenticationRequired = false;
+  sessionRevision++;
+  invalidateCsrf();
   notifySessionChanged();
+  if (broadcast) channel?.postMessage({ type: "logout" });
+}
+
+export async function logoutSession(all = false): Promise<void> {
+  await apiRequest(all ? "/auth/logout-all" : "/auth/logout", { method: "POST" });
+  clearSession();
+}
+
+export async function revokeSession(id: string, current = false): Promise<void> {
+  await apiRequest(`/auth/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (current) clearSession();
 }
 
 function apiUrl(path: string): string {
@@ -78,70 +146,152 @@ function networkApiError(path: string): ApiError {
   );
 }
 
-async function refreshAccessToken(): Promise<TokenResponse | null> {
-  const session = getStoredSession();
-  const refreshToken = session?.refresh_token;
-  if (!refreshToken) return null;
-  if (refreshPromise) return refreshPromise;
-
-  refreshPromise = (async () => {
-    try {
-      const response = await fetch(apiUrl("/auth/refresh"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
-      if (!response.ok) return null;
-      const refreshed = (await response.json()) as TokenResponse;
-      if (!refreshed.access_token) return null;
-      const currentSession = getStoredSession();
-      if (currentSession?.refresh_token !== refreshToken) return null;
-      const nextSession: TokenResponse = {
-        ...currentSession,
-        ...refreshed,
-        refresh_token: refreshed.refresh_token ?? refreshToken,
-        user: refreshed.user ?? currentSession.user,
-      };
-      storeSession(nextSession);
-      return nextSession;
-    } catch {
-      return null;
-    } finally {
-      refreshPromise = null;
-    }
+async function getCsrf(actionPath: string): Promise<string> {
+  if (csrfToken) return csrfToken;
+  if (csrfPromise) return csrfPromise;
+  const revision = csrfRevision;
+  const pending = (async () => {
+    const response = await rawFetch("/auth/csrf", {}, actionPath);
+    if (!response.ok) throw new ApiError(response.status, "Unable to establish request security. Try again.");
+    const data = await response.json() as { csrf_token: string };
+    if (!data.csrf_token) throw new ApiError(0, "Unable to establish request security. Try again.");
+    if (revision !== csrfRevision) return getCsrf(actionPath);
+    csrfToken = data.csrf_token;
+    return csrfToken;
   })();
-  return refreshPromise;
+  csrfPromise = pending;
+  try { return await pending; } finally { if (csrfPromise === pending) csrfPromise = null; }
+}
+
+async function rawFetch(path: string, options: RequestInit = {}, actionPath = path): Promise<Response> {
+  try { return await fetch(apiUrl(path), { ...options, credentials: "include" }); }
+  catch { throw networkApiError(actionPath); }
+}
+
+async function secureFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(options.headers);
+  const method = (options.method ?? "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-CSRF-Token", await getCsrf(path));
+  if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  return rawFetch(path, { ...options, headers });
+}
+
+async function sessionChanged(next: SessionResponse): Promise<void> {
+  sessionRevision++;
+  invalidateCsrf();
+  acceptSession(next);
+  channel?.postMessage({ type: "changed" });
+  // Metadata is already usable if CSRF acquisition has a transient network failure.
+  try { await getCsrf("/auth/csrf"); } catch { /* Unsafe requests retry CSRF acquisition. */ }
+}
+
+async function refreshAccessToken(): Promise<SessionResponse | null> {
+  if (refreshPromise) return refreshPromise;
+  const revision = sessionRevision;
+  const refresh = async (): Promise<SessionResponse | null> => {
+    try {
+      // Another tab may have refreshed while this tab waited for the lock.
+      const me = await rawFetch("/auth/me");
+      if (revision !== sessionRevision && explicitlyLoggedOut) return null;
+      if (me.ok) {
+        const next = { user: await me.json() as User };
+        acceptSession(next);
+        return next;
+      }
+      if (me.status !== 401) return null;
+      invalidateCsrf();
+      const refreshRevision = sessionRevision;
+      const response = await fetchWithAuth("/auth/refresh", { method: "POST" });
+      if (!response.ok) return null;
+      const next = await response.json() as SessionResponse;
+      if (refreshRevision !== sessionRevision || !next.user) return null;
+      await sessionChanged(next);
+      return next;
+    } catch { return null; }
+  };
+  refreshPromise = (async () => {
+    if (typeof navigator !== "undefined" && navigator.locks) return navigator.locks.request("pristine-bio-billing.session-refresh", refresh);
+    return refresh();
+  })();
+  try { return await refreshPromise; } finally { refreshPromise = null; }
 }
 
 async function fetchWithAuth(path: string, options: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(options.headers);
-  const session = getStoredSession();
-  if (session?.access_token) headers.set("Authorization", `Bearer ${session.access_token}`);
-
-  let response: Response;
-  try {
-    response = await fetch(apiUrl(path), { ...options, headers });
-  } catch {
-    throw networkApiError(path);
+  initializeSession();
+  let csrfRetried = false;
+  const request = async () => {
+    let response = await secureFetch(path, options);
+    if (response.status === 403 && !csrfRetried) {
+      const data = await response.clone().json().catch(() => null) as { detail?: string } | null;
+      if (typeof data?.detail === "string" && data.detail.startsWith("CSRF validation failed")) {
+        csrfRetried = true;
+        invalidateCsrf();
+        response = await secureFetch(path, options);
+      }
+    }
+    return response;
+  };
+  let response = await request();
+  const noRefresh = ["/auth/login", "/auth/register", "/auth/invitations/accept", "/auth/refresh", "/auth/csrf"].includes(path);
+  if (response.status === 401 && !noRefresh) {
+    const validatesSecret = path === "/auth/password" || path.startsWith("/auth/mfa/") || /^\/users\/\d+\/mfa-reset$/.test(path);
+    if (validatesSecret) {
+      const me = await rawFetch("/auth/me");
+      // A bad code/password is an action error, not a lost cookie session.
+      if (me.ok) return response;
+    }
+    if (await refreshAccessToken()) response = await request();
+    if (response.status === 401) {
+      reauthenticationRequired = true;
+      notifySessionChanged();
+    }
   }
-
-  const authEndpoint = path.startsWith("/auth/login") || path.startsWith("/auth/register") || path.startsWith("/auth/refresh");
-  if (response.status !== 401 || authEndpoint) return response;
-
-  const refreshed = await refreshAccessToken();
-  if (!refreshed?.access_token) return response;
-  const retryHeaders = new Headers(options.headers);
-  retryHeaders.set("Authorization", `Bearer ${refreshed.access_token}`);
-  try {
-    return await fetch(apiUrl(path), { ...options, headers: retryHeaders });
-  } catch {
-    throw networkApiError(path);
+  if (response.status === 403) {
+    const data = await response.clone().json().catch(() => null) as { detail?: string } | null;
+    if (["password_change_required", "mfa_enrollment_required", "mfa_verification_required"].includes(data?.detail ?? "")) {
+      reauthenticationRequired = true;
+      notifySessionChanged();
+      void validateSession();
+    }
   }
+  return response;
 }
 
-async function fetchFileBlob(path: string): Promise<Blob> {
-  const response = await fetchWithAuth(path);
-  if (!response.ok) throw new ApiError(response.status, response.statusText || "File request failed");
+export async function validateSession(): Promise<SessionResponse | null> {
+  if (validationPromise) return validationPromise;
+  const revision = sessionRevision;
+  validationPromise = (async () => {
+    try {
+      const user = await apiRequest<User>("/auth/me");
+      if (explicitlyLoggedOut && revision !== sessionRevision) return null;
+      const next = { user };
+      acceptSession(next);
+      return next;
+    } catch (error) {
+      validationError = error instanceof ApiError ? error.message : "Unable to verify your session.";
+      reauthenticationRequired = true;
+      notifySessionChanged();
+      return null;
+    }
+  })();
+  try { return await validationPromise; } finally { validationPromise = null; }
+}
+
+export async function fetchFileBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  const response = await fetchWithAuth(path, { ...options, cache: "no-store" });
+  if (!response.ok) {
+    let detail: unknown;
+    let message = response.statusText || "File request failed";
+    try {
+      const body = await response.json();
+      detail = body.detail;
+      message = formatApiDetail(detail) || message;
+    } catch { /* Keep the original HTTP error for non-JSON responses. */ }
+    throw new ApiError(response.status, message, detail);
+  }
+  if (!response.headers.get("content-type")?.toLowerCase().includes("application/pdf")) {
+    throw new ApiError(response.status, "The server did not return a valid PDF. Your bill remains saved; retry the preview.");
+  }
   return response.blob();
 }
 
@@ -149,19 +299,34 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   const response = await fetchWithAuth(path, options);
   if (!response.ok) {
     let message = response.statusText || "Request failed";
+    let errorDetail: unknown;
     try {
       const body: unknown = await response.json();
       if (typeof body === "object" && body !== null) {
         const record = body as Record<string, unknown>;
+        errorDetail = record.detail;
         const detailMessage = formatApiDetail(record.detail);
         const apiMessage = record.message;
         if (detailMessage) message = detailMessage;
+        else if (typeof record.detail === "object" && record.detail !== null && typeof (record.detail as Record<string, unknown>).message === "string") message = (record.detail as Record<string, string>).message;
         else if (typeof apiMessage === "string") message = apiMessage;
       }
     } catch { /* Preserve the response status text for non-JSON errors. */ }
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, errorDetail);
   }
-  return response.json() as Promise<T>;
+  if (response.status === 204) return undefined as T;
+  const data = await response.json() as T;
+  const changedPaths = ["/auth/login", "/auth/register", "/auth/invitations/accept", "/auth/password"];
+  if (changedPaths.includes(path)) {
+    const next = data as SessionResponse;
+    if (next.user) {
+      await sessionChanged(next);
+    }
+  } else if (path.startsWith("/auth/mfa/")) {
+    invalidateCsrf();
+    try { await getCsrf(path); } catch { /* Next unsafe request retries acquisition. */ }
+  }
+  return data;
 }
 
 export async function downloadFile(path: string, filename: string): Promise<void> {

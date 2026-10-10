@@ -1,11 +1,14 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import false, select
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_token
+from app.core.config import get_settings
+from app.models.authentication import AuthSession
+from app.services.account_security import admin_lock, session_valid, now, requires_mfa
 from app.db.session import get_db
 from app.models.company import Branch
 from app.models.enums import UserRole
@@ -24,29 +27,54 @@ def _authentication_exception() -> HTTPException:
 
 
 def get_current_user(
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Depends(security_scheme)
-    ],
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
-    if credentials is None:
+    # Serialize only security/configuration mutations, not billing workflows.
+    # Acquiring this before dependency validation closes stale authority windows
+    # and gives all account/session/audit writes one PostgreSQL lock order.
+    security_mutation = request.method not in {"GET","HEAD","OPTIONS"} and any(request.url.path.startswith("/api/v1/"+prefix) for prefix in ("auth/","users","companies","branches","bank-accounts"))
+    if security_mutation:
+        admin_lock(db)
+    token = request.cookies.get(get_settings().cookie_name("access"))
+    if not token:
         raise _authentication_exception()
 
     try:
-        payload = decode_token(credentials.credentials, expected_type="access")
+        payload = decode_token(token, expected_type="access")
         user_id = int(payload["sub"])
+        session_id = str(payload["sid"])
     except (KeyError, TypeError, ValueError):
         raise _authentication_exception() from None
 
-    user = db.get(User, user_id)
-    if user is None or not user.is_active:
+    user = db.scalar(select(User).where(User.id==user_id).execution_options(populate_existing=True))
+    session = db.scalar(select(AuthSession).where(AuthSession.id==session_id).execution_options(populate_existing=True))
+    if not session_valid(session, user) or session.user_id != user_id:
         raise _authentication_exception()
+    request.state.auth_session = session
+    # Persist activity only once per minute; do not extend absolute expiry.
+    from app.services.account_security import aware
+    if (now() - aware(session.last_seen_at)).total_seconds() > 60:
+        session.last_seen_at = now()
+        # Do not release a security-mutation lock before the endpoint executes.
+        if not security_mutation:
+            db.commit()
+        else:
+            db.flush()
     return user
 
 
 def get_current_active_user(
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> User:
+    if current_user.password_policy_version < 1:
+        raise HTTPException(403, "password_change_required")
+    if requires_mfa(current_user):
+        if not current_user.mfa_enabled_at:
+            raise HTTPException(403, "mfa_enrollment_required")
+        if not request.state.auth_session.mfa_verified:
+            raise HTTPException(403, "mfa_verification_required")
     return current_user
 
 

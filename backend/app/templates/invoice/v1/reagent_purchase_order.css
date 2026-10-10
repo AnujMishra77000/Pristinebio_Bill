@@ -1,0 +1,53 @@
+/* Match the Reagent Bill body so bank and quantity details sit at the same
+   depth while short copies retain their bottom terms and footer. */
+.short-copy .reagent-items-table tbody {
+  height: 64mm;
+}
+
+/* The larger body must still fit full shipping/contact data on a short copy. */
+.meta-row {
+  padding-top: 0.25mm;
+  padding-bottom: 0.25mm;
+}
+
+.party-line,
+.shipment-line {
+  margin-bottom: 0.1mm;
+  line-height: 1.1;
+}
+
+.reagent-po-final-block {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.reagent-po-final-block .final-zone {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 65mm;
+  column-gap: 5mm;
+  align-items: end;
+  margin-top: auto;
+}
+
+.reagent-po-final-block .terms {
+  grid-column: 1;
+  grid-row: 1;
+  margin-bottom: 2mm;
+}
+
+.reagent-po-final-block .signature {
+  grid-column: 2;
+  grid-row: 1;
+  position: static;
+  top: auto;
+  margin: 0 0 2mm;
+}
+
+.reagent-po-final-block .invoice-footer {
+  grid-column: 1 / -1;
+  position: static;
+}

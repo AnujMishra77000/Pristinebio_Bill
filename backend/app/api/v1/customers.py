@@ -1,8 +1,8 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from app.api.dependencies import assigned_branch_ids, ensure_branch_access, get_current_active_user, resolve_branch_for_user
 from app.db.session import get_db
@@ -10,8 +10,9 @@ from app.models.company import Branch
 from app.models.enums import UserRole
 from app.models.master_records import Customer
 from app.models.user import User
-from app.schemas.common import AddressRead
+from app.schemas.common import AddressPayload, AddressRead
 from app.schemas.master_records import CustomerCreate, CustomerRead, CustomerUpdate
+from app.services.customer_identity import find_customer_by_gstin, lock_customer_gstin, normalize_gstin, require_active_customer
 
 
 router = APIRouter()
@@ -69,10 +70,19 @@ def _get_customer(db: Session, current_user: User, customer_id: int) -> Customer
 @router.post("", response_model=CustomerRead, status_code=status.HTTP_201_CREATED)
 def create_customer(
     request: CustomerCreate,
+    response: Response,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> CustomerRead:
     branch = resolve_branch_for_user(db, current_user, request.branch_id)
+    lock_customer_gstin(db, branch.id, request.gstin)
+    existing = find_customer_by_gstin(db, branch.id, request.gstin)
+    if existing is not None:
+        require_active_customer(existing)
+        response.status_code = status.HTTP_200_OK
+        # Creation is not a master edit. Preserve the saved identity/address.
+        db.commit()
+        return _customer_read(existing)
     values = request.model_dump(exclude={"billing_address", "shipping_address"})
     values["branch_id"] = branch.id
     values.update(_address_values("billing", request.billing_address.model_dump()))
@@ -87,6 +97,10 @@ def create_customer(
 @router.get("", response_model=list[CustomerRead])
 def list_customers(
     branch_id: int | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    billing: bool = False,
+    register: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> list[CustomerRead]:
@@ -97,7 +111,28 @@ def list_customers(
         statement = statement.where(Customer.branch_id == branch_id)
     elif current_user.role != UserRole.ADMIN:
         statement = statement.where(Customer.branch_id.in_(assigned_branch_ids(current_user)))
-    return [_customer_read(customer) for customer in db.scalars(statement)]
+    if billing or register:
+        older = aliased(Customer)
+        gstin = func.nullif(func.upper(func.trim(Customer.gstin)), "")
+        preferred_match = older.id < Customer.id
+        if register and not billing:
+            # One visible identity, preferring an active record, otherwise the
+            # oldest inactive one. Historical IDs remain available by detail.
+            preferred_match = or_(
+                and_(older.is_active.is_(True), Customer.is_active.is_(False)),
+                and_(older.is_active == Customer.is_active, older.id < Customer.id),
+            )
+        earlier_active_match = select(older.id).where(
+            older.branch_id == Customer.branch_id,
+            func.upper(func.trim(older.gstin)) == gstin,
+            preferred_match,
+            *([older.is_active.is_(True)] if billing else []),
+        ).exists()
+        # Filter BEFORE the limit; no-GSTIN buyers remain independent records.
+        statement = statement.where(or_(gstin.is_(None), ~earlier_active_match))
+        if billing:
+            statement = statement.where(Customer.is_active.is_(True))
+    return [_customer_read(customer) for customer in db.scalars(statement.offset(offset).limit(limit))]
 
 
 @router.get("/{customer_id}", response_model=CustomerRead)
@@ -121,13 +156,22 @@ def update_customer(
     if "branch_id" in updates:
         ensure_branch_access(current_user, updates["branch_id"])
         _ensure_branch_exists(db, updates["branch_id"])
+    target_branch = updates.get("branch_id", customer.branch_id)
+    target_gstin = normalize_gstin(updates.get("gstin", customer.gstin))
+    identity_changed = (target_branch, target_gstin) != (customer.branch_id, normalize_gstin(customer.gstin))
+    reactivating = updates.get("is_active") is True and not customer.is_active
+    if identity_changed or reactivating:
+        lock_customer_gstin(db, target_branch, target_gstin)
+        if find_customer_by_gstin(db, target_branch, target_gstin, exclude_id=customer.id) is not None:
+            raise HTTPException(status_code=409, detail={"field": "gstin", "message": "This GSTIN already belongs to a saved customer. Edit that customer instead."})
     for field, value in updates.items():
         setattr(customer, field, value)
     if request.billing_address is not None:
         for field, value in _address_values("billing", request.billing_address.model_dump()).items():
             setattr(customer, field, value)
-    if request.shipping_address is not None:
-        for field, value in _address_values("shipping", request.shipping_address.model_dump()).items():
+    if "shipping_address" in request.model_fields_set:
+        address = request.shipping_address.model_dump() if request.shipping_address is not None else {field: None for field in AddressPayload.model_fields}
+        for field, value in _address_values("shipping", address).items():
             setattr(customer, field, value)
     db.commit()
     db.refresh(customer)

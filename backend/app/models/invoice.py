@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Date, DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -41,6 +41,7 @@ class Invoice(TimestampMixin, Base):
     buyer_customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
     consignee_customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"))
     bank_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_accounts.id"))
+    supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id", name="fk_invoices_supplier"), index=True)
     transporter_id: Mapped[int | None] = mapped_column(ForeignKey("transporters.id"))
     terms_and_conditions_id: Mapped[int | None] = mapped_column(ForeignKey("terms_and_conditions.id"))
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -49,10 +50,16 @@ class Invoice(TimestampMixin, Base):
     pdf_generated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     status: Mapped[InvoiceStatus] = invoice_status_column(InvoiceStatus.DRAFT)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    submitted_revision: Mapped[int | None] = mapped_column(Integer)
+    approved_revision: Mapped[int | None] = mapped_column(Integer)
+    returned_reason: Mapped[str | None] = mapped_column(Text)
+    document_type: Mapped[str] = mapped_column(String(20), default="sales", server_default="sales", nullable=False)
     invoice_number: Mapped[str | None] = mapped_column(String(80), unique=True)
     invoice_sequence: Mapped[int | None] = mapped_column(Integer)
     financial_year: Mapped[str | None] = mapped_column(String(7))
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default="INR")
     delivery_note_date: Mapped[date | None] = mapped_column(Date)
     place_of_supply_state_code: Mapped[str] = mapped_column(String(2), nullable=False)
     po_number: Mapped[str | None] = mapped_column(String(100))
@@ -79,6 +86,8 @@ class Invoice(TimestampMixin, Base):
     seller_trade_name: Mapped[str | None] = mapped_column(String(255))
     seller_logo_data_uri: Mapped[str | None] = mapped_column(Text)
     seller_pan: Mapped[str | None] = mapped_column(String(10))
+    company_registered_address: Mapped[str | None] = mapped_column(Text)
+    pickup_address: Mapped[str | None] = mapped_column(Text)
     seller_address_line1: Mapped[str | None] = mapped_column(String(255))
     seller_address_line2: Mapped[str | None] = mapped_column(String(255))
     seller_city: Mapped[str | None] = mapped_column(String(100))
@@ -86,6 +95,7 @@ class Invoice(TimestampMixin, Base):
     seller_postal_code: Mapped[str | None] = mapped_column(String(20))
     seller_phone: Mapped[str | None] = mapped_column(String(30))
     seller_email: Mapped[str | None] = mapped_column(String(255))
+    seller_email_addresses: Mapped[list[str] | None] = mapped_column(JSON)
     buyer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     buyer_gstin: Mapped[str | None] = mapped_column(String(15))
     buyer_pan: Mapped[str | None] = mapped_column(String(10))
@@ -99,6 +109,9 @@ class Invoice(TimestampMixin, Base):
     buyer_postal_code: Mapped[str] = mapped_column(String(20), nullable=False)
     consignee_name: Mapped[str | None] = mapped_column(String(255))
     consignee_gstin: Mapped[str | None] = mapped_column(String(15))
+    consignee_pan: Mapped[str | None] = mapped_column(String(10))
+    consignee_email: Mapped[str | None] = mapped_column(String(255))
+    consignee_phone: Mapped[str | None] = mapped_column(String(30))
     consignee_address_line1: Mapped[str | None] = mapped_column(String(255))
     consignee_address_line2: Mapped[str | None] = mapped_column(String(255))
     consignee_city: Mapped[str | None] = mapped_column(String(100))
@@ -140,6 +153,7 @@ class Invoice(TimestampMixin, Base):
     bank_account: Mapped[BankAccount | None] = relationship()
     lines: Mapped[list[InvoiceLine]] = relationship(back_populates="invoice", cascade="all, delete-orphan", order_by="InvoiceLine.sort_order")
     audit_logs: Mapped[list[InvoiceAuditLog]] = relationship(back_populates="invoice", cascade="all, delete-orphan", order_by="InvoiceAuditLog.id")
+    revisions: Mapped[list[InvoiceRevision]] = relationship(back_populates="invoice", cascade="all, delete-orphan", order_by="InvoiceRevision.id")
 
 
 class InvoiceLine(Base):
@@ -151,12 +165,18 @@ class InvoiceLine(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    manufacturer_name: Mapped[str | None] = mapped_column(String(255))
+    manufacturer_code: Mapped[str | None] = mapped_column(String(30))
+    manufacturer_product_code: Mapped[str | None] = mapped_column(String(100))
+    part_no: Mapped[str | None] = mapped_column(String(100))
+    pack_size: Mapped[str | None] = mapped_column(String(100))
     hsn_sac: Mapped[str] = mapped_column(String(20), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3), nullable=False)
     unit: Mapped[str] = mapped_column(String(50), nullable=False)
     rate: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     other_charge: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"), nullable=False)
     discount_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"), nullable=False)
+    discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"), nullable=False)
     taxable_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     gst_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     cess_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
@@ -185,6 +205,23 @@ class InvoiceAuditLog(Base):
     actor: Mapped[User] = relationship()
 
 
+class InvoiceRevision(Base):
+    __tablename__ = "invoice_revisions"
+    __table_args__ = (UniqueConstraint("invoice_id", "revision", name="uq_invoice_revision"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    event: Mapped[str] = mapped_column(String(40), nullable=False)
+    actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    invoice: Mapped[Invoice] = relationship(back_populates="revisions")
+    actor: Mapped[User] = relationship()
+
+
 class InvoiceNumberCounter(Base):
     __tablename__ = "invoice_number_counters"
     __table_args__ = (UniqueConstraint("branch_id", "financial_year"),)
@@ -193,3 +230,17 @@ class InvoiceNumberCounter(Base):
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.id"), nullable=False)
     financial_year: Mapped[str] = mapped_column(String(7), nullable=False)
     next_sequence: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class InvoiceCreationRequest(TimestampMixin, Base):
+    __tablename__ = "invoice_creation_requests"
+    __table_args__ = (
+        UniqueConstraint("branch_id", "idempotency_key", name="uq_invoice_creation_branch_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    branch_id: Mapped[int] = mapped_column(ForeignKey("branches.id"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    invoice_id: Mapped[int | None] = mapped_column(ForeignKey("invoices.id"), unique=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

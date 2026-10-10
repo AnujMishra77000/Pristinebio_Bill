@@ -3,6 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
+from app.services.financial_validation import (
+    FinancialValidationError,
+    normalize_money,
+    normalize_quantity,
+    normalize_rate,
+    normalize_tax_rate,
+    state_code,
+)
+
 
 MONEY = Decimal("0.01")
 RUPEE = Decimal("1")
@@ -20,16 +29,27 @@ class InvoiceCalculationLine:
     gst_rate: Decimal
     cess_rate: Decimal
     other_charge: Decimal = ZERO
+    manufacturer_name: str | None = None
+    manufacturer_code: str | None = None
+    manufacturer_product_code: str | None = None
+    part_no: str | None = None
+    discount_percent: Decimal = ZERO
+    pack_size: str | None = None
 
 
 @dataclass(frozen=True)
 class InvoiceLineCalculationResult:
     description: str
+    manufacturer_name: str | None
+    manufacturer_code: str | None
+    manufacturer_product_code: str | None
+    part_no: str | None
     hsn_sac: str
     quantity: Decimal
     unit: str
     rate: Decimal
     discount_amount: Decimal
+    discount_percent: Decimal
     taxable_value: Decimal
     gst_rate: Decimal
     cess_rate: Decimal
@@ -39,6 +59,7 @@ class InvoiceLineCalculationResult:
     igst_amount: Decimal
     cess_amount: Decimal
     line_total: Decimal
+    pack_size: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,33 +94,62 @@ def calculate_invoice(
     other_charges: Decimal = ZERO,
     discount_amount: Decimal = ZERO,
 ) -> InvoiceCalculationResult:
+    state_code(branch_state_code, "Seller state code")
+    state_code(place_of_supply_state_code, "Place of supply state code")
+    if not lines:
+        raise FinancialValidationError("At least one invoice line is required")
+
+    freight_charges = normalize_money(freight_charges, "Freight charges")
+    packing_charges = normalize_money(packing_charges, "Packing charges")
+    other_charges = normalize_money(other_charges, "Other charges")
+    discount_amount = normalize_money(discount_amount, "Document discount")
     is_intrastate = branch_state_code == place_of_supply_state_code
     calculated_lines: list[InvoiceLineCalculationResult] = []
 
-    for line in lines:
-        taxable_value = money((line.quantity * line.rate) + line.other_charge - line.discount_amount)
-        cess_amount = money(taxable_value * line.cess_rate / Decimal("100"))
+    for index, line in enumerate(lines, start=1):
+        quantity = normalize_quantity(line.quantity, f"Line {index} quantity")
+        rate = normalize_rate(line.rate, f"Line {index} rate")
+        other_charge = normalize_money(line.other_charge, f"Line {index} other charge")
+        line_discount = normalize_money(line.discount_amount, f"Line {index} discount")
+        discount_percent = normalize_tax_rate(line.discount_percent, f"Line {index} discount percent")
+        if line_discount and discount_percent:
+            raise FinancialValidationError(f"Line {index} must use either a discount amount or discount percent")
+        gst_rate = normalize_tax_rate(line.gst_rate, f"Line {index} GST rate")
+        cess_rate = normalize_tax_rate(line.cess_rate, f"Line {index} cess rate")
+        line_base = (quantity * rate) + other_charge
+        if discount_percent:
+            line_discount = money(line_base * discount_percent / Decimal("100"))
+        if line_discount > line_base:
+            raise FinancialValidationError(f"Line {index} discount cannot exceed its taxable base")
+        taxable_value = money(line_base - line_discount)
+        cess_amount = money(taxable_value * cess_rate / Decimal("100"))
         if is_intrastate:
-            cgst_amount = money(taxable_value * (line.gst_rate / Decimal("2")) / Decimal("100"))
-            sgst_amount = money(taxable_value * (line.gst_rate / Decimal("2")) / Decimal("100"))
+            cgst_amount = money(taxable_value * (gst_rate / Decimal("2")) / Decimal("100"))
+            sgst_amount = money(taxable_value * (gst_rate / Decimal("2")) / Decimal("100"))
             igst_amount = ZERO
         else:
             cgst_amount = ZERO
             sgst_amount = ZERO
-            igst_amount = money(taxable_value * line.gst_rate / Decimal("100"))
+            igst_amount = money(taxable_value * gst_rate / Decimal("100"))
         line_total = money(taxable_value + cgst_amount + sgst_amount + igst_amount + cess_amount)
         calculated_lines.append(
             InvoiceLineCalculationResult(
                 description=line.description,
+                manufacturer_name=line.manufacturer_name,
+                manufacturer_code=line.manufacturer_code,
+                manufacturer_product_code=line.manufacturer_product_code,
+                part_no=line.part_no,
+                pack_size=line.pack_size,
                 hsn_sac=line.hsn_sac,
-                quantity=line.quantity,
+                quantity=quantity,
                 unit=line.unit,
-                rate=line.rate,
-                other_charge=money(line.other_charge),
-                discount_amount=money(line.discount_amount),
+                rate=rate,
+                other_charge=other_charge,
+                discount_amount=line_discount,
+                discount_percent=discount_percent,
                 taxable_value=taxable_value,
-                gst_rate=line.gst_rate,
-                cess_rate=line.cess_rate,
+                gst_rate=gst_rate,
+                cess_rate=cess_rate,
                 cgst_amount=cgst_amount,
                 sgst_amount=sgst_amount,
                 igst_amount=igst_amount,
@@ -110,24 +160,42 @@ def calculate_invoice(
 
     line_taxable_total = sum((line.taxable_value for line in calculated_lines), ZERO)
     charges_total = money(freight_charges + packing_charges + other_charges)
-    taxable_value = money(line_taxable_total + charges_total - discount_amount)
-    taxable_basis = line_taxable_total if line_taxable_total > 0 else Decimal("1")
-    weighted_gst_rate = sum((line.taxable_value * line.gst_rate for line in calculated_lines), ZERO) / taxable_basis
-    weighted_cess_rate = sum((line.taxable_value * line.cess_rate for line in calculated_lines), ZERO) / taxable_basis
+    document_adjustment = charges_total - discount_amount
+    raw_taxable_value = line_taxable_total + document_adjustment
+    if raw_taxable_value < 0:
+        raise FinancialValidationError("Document discount cannot exceed the taxable value")
+    taxable_value = money(raw_taxable_value)
+    if line_taxable_total > 0:
+        weighted_gst_rate = sum((line.taxable_value * line.gst_rate for line in calculated_lines), ZERO) / line_taxable_total
+        weighted_cess_rate = sum((line.taxable_value * line.cess_rate for line in calculated_lines), ZERO) / line_taxable_total
+    else:
+        weighted_gst_rate = ZERO
+        weighted_cess_rate = ZERO
+
+    line_cgst_total = sum((line.cgst_amount for line in calculated_lines), ZERO)
+    line_sgst_total = sum((line.sgst_amount for line in calculated_lines), ZERO)
+    line_igst_total = sum((line.igst_amount for line in calculated_lines), ZERO)
+    line_cess_total = sum((line.cess_amount for line in calculated_lines), ZERO)
+    allocated_cgst = money(document_adjustment * (weighted_gst_rate / Decimal("2")) / Decimal("100"))
+    allocated_sgst = money(document_adjustment * (weighted_gst_rate / Decimal("2")) / Decimal("100"))
+    allocated_igst = money(document_adjustment * weighted_gst_rate / Decimal("100"))
+    allocated_cess = money(document_adjustment * weighted_cess_rate / Decimal("100"))
 
     if is_intrastate:
-        cgst_amount = money(taxable_value * (weighted_gst_rate / Decimal("2")) / Decimal("100"))
-        sgst_amount = money(taxable_value * (weighted_gst_rate / Decimal("2")) / Decimal("100"))
+        cgst_amount = money(line_cgst_total + allocated_cgst)
+        sgst_amount = money(line_sgst_total + allocated_sgst)
         igst_amount = ZERO
     else:
         cgst_amount = ZERO
         sgst_amount = ZERO
-        igst_amount = money(taxable_value * weighted_gst_rate / Decimal("100"))
-    cess_amount = money(taxable_value * weighted_cess_rate / Decimal("100"))
+        igst_amount = money(line_igst_total + allocated_igst)
+    cess_amount = money(line_cess_total + allocated_cess)
 
     unrounded_total = money(taxable_value + cgst_amount + sgst_amount + igst_amount + cess_amount)
     final_total = rupee(unrounded_total)
     round_off = money(final_total - unrounded_total)
+    if final_total < 0:
+        raise FinancialValidationError("Invoice total cannot be negative")
 
     return InvoiceCalculationResult(
         lines=calculated_lines,

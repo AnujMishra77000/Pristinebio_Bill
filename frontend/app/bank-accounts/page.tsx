@@ -3,8 +3,9 @@ import { MasterDataPage } from "@/app/components/MasterDataPage";
 export default function BankAccountsPage() {
   return (
     <MasterDataPage
+      icon="bank-accounts"
       title="Bank accounts"
-      description="Create and view bank account details used later by invoices. The Seller/GST profile is used automatically."
+      description="Maintain the bank details and default account used on your invoices."
       endpoint="/bank-accounts"
       fields={[
         { name: "branch_id", label: "Seller/GST profile", type: "number", required: true },

@@ -148,6 +148,7 @@ def test_remaining_master_patch_updates_assigned_record(
     client,
     auth_headers,
     staff_user,
+    admin_user,
     branch,
     path,
     payload_factory,
@@ -155,15 +156,16 @@ def test_remaining_master_patch_updates_assigned_record(
     response_field,
     expected_value,
 ):
+    editor=admin_user if path=="bank-accounts" else staff_user
     created = client.post(
         f"/api/v1/{path}",
-        headers=auth_headers(staff_user),
+        headers=auth_headers(editor),
         json=payload_factory(branch.id),
     )
 
     response = client.patch(
         f"/api/v1/{path}/{created.json()['id']}",
-        headers=auth_headers(staff_user),
+        headers=auth_headers(editor),
         json=patch_payload,
     )
 
@@ -184,6 +186,7 @@ def test_user_cannot_transfer_remaining_master_to_unassigned_branch(
     client,
     auth_headers,
     staff_user,
+    admin_user,
     branch,
     other_branch,
     path,
@@ -191,7 +194,7 @@ def test_user_cannot_transfer_remaining_master_to_unassigned_branch(
 ):
     created = client.post(
         f"/api/v1/{path}",
-        headers=auth_headers(staff_user),
+        headers=auth_headers(admin_user if path=="bank-accounts" else staff_user),
         json=payload_factory(branch.id),
     )
 

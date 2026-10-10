@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -47,6 +47,7 @@ def create_terms(
 @router.get("", response_model=list[TermsRead])
 def list_terms(
     branch_id: int | None = None,
+    limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> list[TermsAndConditions]:
@@ -57,7 +58,7 @@ def list_terms(
         statement = statement.where(TermsAndConditions.branch_id == branch_id)
     elif current_user.role != UserRole.ADMIN:
         statement = statement.where(TermsAndConditions.branch_id.in_(assigned_branch_ids(current_user)))
-    return list(db.scalars(statement))
+    return list(db.scalars(statement.limit(limit)))
 
 
 @router.get("/{terms_id}", response_model=TermsRead)

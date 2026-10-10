@@ -26,26 +26,40 @@ function hasShippingAddress(payload: Record<string, unknown>) {
 export default function CustomersPage() {
   return (
     <MasterDataPage
+      icon="customers"
       title="Customers"
-      description="Create and view customers with separate billing and consignee/shipping addresses. The Seller/GST profile is used automatically."
+      description="Customer details, billing addresses and delivery contacts in one place."
       endpoint="/customers"
+      listEndpoint="/customers?register=true"
+      listPageSize={100}
+      editable
+      recordToForm={(record) => {
+        const form: Record<string, string | boolean> = {};
+        for (const field of ["branch_id", "name", "gstin", "pan", "email", "phone"]) form[field] = String(record[field] ?? "");
+        form.is_active = record.is_active === true;
+        for (const prefix of ["billing", "shipping"]) {
+          const address = record[`${prefix}_address`] as Record<string, unknown> | null;
+          for (const field of ["name", "address_line1", "address_line2", "city", "state", "state_code", "postal_code"]) form[`${prefix}_${field}`] = String(address?.[field] ?? "");
+        }
+        return form;
+      }}
       fields={[
         { name: "branch_id", label: "Seller/GST profile", type: "number", required: true },
-        { name: "name", label: "Customer name", required: true },
+        { name: "name", label: "Customer name", type: "textarea", required: true, section: "Customer details" },
         { name: "gstin", label: "GSTIN" },
         { name: "pan", label: "PAN" },
         { name: "email", label: "Email", type: "email" },
         { name: "phone", label: "Phone" },
-        { name: "billing_name", label: "Billing name" },
-        { name: "billing_address_line1", label: "Billing address line 1", required: true },
-        { name: "billing_address_line2", label: "Billing address line 2" },
+        { name: "billing_name", label: "Billing name", section: "Billing address" },
+        { name: "billing_address_line1", label: "Billing address line 1", type: "textarea", required: true },
+        { name: "billing_address_line2", label: "Billing address line 2", type: "textarea" },
         { name: "billing_city", label: "Billing city", required: true },
         { name: "billing_state", label: "Billing state", required: true },
         { name: "billing_state_code", label: "Billing state code", required: true },
         { name: "billing_postal_code", label: "Billing postal code", required: true },
-        { name: "shipping_name", label: "Shipping/consignee name" },
-        { name: "shipping_address_line1", label: "Shipping address line 1" },
-        { name: "shipping_address_line2", label: "Shipping address line 2" },
+        { name: "shipping_name", label: "Shipping/consignee name", section: "Shipping address · optional" },
+        { name: "shipping_address_line1", label: "Shipping address line 1", type: "textarea" },
+        { name: "shipping_address_line2", label: "Shipping address line 2", type: "textarea" },
         { name: "shipping_city", label: "Shipping city" },
         { name: "shipping_state", label: "Shipping state" },
         { name: "shipping_state_code", label: "Shipping state code" },

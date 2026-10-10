@@ -1,5 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
+from fastapi import Request, Response
+from cryptography.fernet import Fernet
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -11,6 +13,32 @@ from app.main import app
 from app.models.company import Branch, Company
 from app.models.enums import UserRole
 from app.models.user import User, UserBranchAssignment
+from app.core.config import get_settings
+from app.core.csrf import issue_csrf
+from app.services.account_security import cipher, new_session, now
+
+
+@pytest.fixture(autouse=True)
+def security_config(monkeypatch):
+    monkeypatch.setattr(get_settings(), "mfa_encryption_key", Fernet.generate_key().decode())
+
+
+class SecurityTestClient(TestClient):
+    """Ordinary test requests use real CSRF; raw_request tests hostile requests."""
+    def raw_request(self, method, url, **kwargs):
+        return super().request(method,url,**kwargs)
+
+    def request(self, method, url, **kwargs):
+        if method.upper() not in {"GET","HEAD","OPTIONS"}:
+            headers=dict(kwargs.pop("headers",{}) or {})
+            if "X-CSRF-Token" not in headers:
+                csrf=super().request("GET","/api/v1/auth/csrf",headers=headers)
+                headers["X-CSRF-Token"]=csrf.json()["csrf_token"]
+                if "Cookie" in headers:
+                    headers["Cookie"] += f"; {get_settings().cookie_name('csrf')}={headers['X-CSRF-Token']}"
+            headers.setdefault("Origin",get_settings().frontend_origin.rstrip("/"))
+            kwargs["headers"]=headers
+        return super().request(method,url,**kwargs)
 
 
 @pytest.fixture()
@@ -37,7 +65,7 @@ def client(db_session: Session):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
+    with SecurityTestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 
@@ -95,6 +123,7 @@ def _create_user(
         full_name=full_name,
         role=role,
         hashed_password=hash_password("Abc123"),
+        password_policy_version=1,
     )
     db_session.add(value)
     db_session.commit()
@@ -134,9 +163,17 @@ def staff_user(db_session: Session, branch: Branch):
 
 
 @pytest.fixture()
-def auth_headers():
+def auth_headers(db_session):
     def _headers(user):
-        token = create_access_token(subject=str(user.id), role=user.role)
-        return {"Authorization": f"Bearer {token}"}
+        if user.role in {UserRole.ADMIN,UserRole.MANAGER} and not user.mfa_enabled_at:
+            user.mfa_enabled_at=now()
+            user.mfa_secret=cipher().encrypt(b"JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP").decode()
+        response=Response()
+        session=new_session(db_session,user,response,mfa_verified=True)
+        db_session.commit()
+        cookie="; ".join(value.split(";",1)[0] for value in response.headers.getlist("set-cookie"))
+        request=Request({"type":"http","headers":[(b"cookie",cookie.encode())]})
+        csrf=issue_csrf(request)
+        return {"Cookie":cookie+f"; {get_settings().cookie_name('csrf')}={csrf}","X-CSRF-Token":csrf,"Origin":get_settings().frontend_origin.rstrip("/")}
 
     return _headers

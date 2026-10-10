@@ -1,10 +1,12 @@
 from app.models.enums import UserRole
 
 
-def test_authenticated_fixture_headers_include_bearer_token(auth_headers, admin_user):
+def test_authenticated_fixture_headers_include_cookie_and_csrf(auth_headers, admin_user):
     headers = auth_headers(admin_user)
 
-    assert headers["Authorization"].startswith("Bearer ")
+    assert "billing_access=" in headers["Cookie"]
+    assert headers["X-CSRF-Token"] and headers["Origin"]
+    assert "Authorization" not in headers
 
 
 def test_branch_fixtures_create_distinct_branches(branch, other_branch):

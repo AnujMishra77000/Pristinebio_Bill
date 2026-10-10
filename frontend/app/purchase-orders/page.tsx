@@ -4,10 +4,19 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { AppShell } from "@/app/components/AppShell";
+import { AppIcon } from "@/app/components/AppIcon";
 import { AutoResizeTextarea } from "@/app/components/AutoResizeTextarea";
-import { AuthGateStatus, useAuthStatus } from "@/app/components/AuthGate";
-import { ApiError, apiRequest, downloadFile, previewPdf } from "@/app/lib/api";
-import type { Product, PurchaseOrder, SellerProfileResponse, Supplier } from "@/app/lib/types";
+import { AuthGateStatus, type AuthStatus } from "@/app/components/AuthGate";
+import { RetainedBillEntry } from "@/app/components/RetainedBillEntry";
+import { PageHeader } from "@/app/components/PageHeader";
+import { BillSubmissionPanel } from "@/app/components/BillSubmissionPanel";
+import { PurchaseOrderSellerFields, PurchaseOrderShippingDetails, purchaseOrderSellerValues } from "@/app/components/PurchaseOrderSellerFields";
+import { ApiError, apiRequest } from "@/app/lib/api";
+import { useBillSubmission } from "@/app/lib/useBillSubmission";
+import { useSavedBillLoader } from "@/app/lib/useSavedBillLoader";
+import { useInvoiceEntryValue, type InvoiceEntrySession } from "@/app/lib/invoiceEntrySession";
+import { indiaDateInputValue } from "@/app/lib/indiaDate";
+import type { InvoicePreview, Product, PurchaseOrder, SellerProfileResponse, Supplier } from "@/app/lib/types";
 
 type EntryMode = "manual" | "saved";
 
@@ -35,13 +44,11 @@ type DraftLine = {
   unit: string;
   rate: string;
   other_charge: string;
-  discount_amount: string;
   gst_rate: string;
   cess_rate: string;
 };
 
-const inputClass = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-ink outline-none transition-colors focus:border-[#6f8fe8]";
-const toggleClass = "rounded-xl px-4 py-2 text-sm font-semibold transition";
+const inputClass = "ui-input";
 
 const blankParty = (): PartyForm => ({
   name: "",
@@ -57,6 +64,22 @@ const blankParty = (): PartyForm => ({
   postal_code: "",
 });
 
+function supplierToParty(supplier: Supplier): PartyForm {
+  return {
+    name: supplier.name,
+    gstin: supplier.gstin ?? "",
+    pan: supplier.pan ?? "",
+    email: supplier.email ?? "",
+    phone: supplier.phone ?? "",
+    address_line1: supplier.address.address_line1 ?? "",
+    address_line2: supplier.address.address_line2 ?? "",
+    city: supplier.address.city ?? "",
+    state: supplier.address.state ?? "",
+    state_code: supplier.address.state_code ?? "",
+    postal_code: supplier.address.postal_code ?? "",
+  };
+}
+
 const initialLine = (key: number): DraftLine => ({
   key,
   product_id: "",
@@ -67,7 +90,6 @@ const initialLine = (key: number): DraftLine => ({
   unit: "KG",
   rate: "",
   other_charge: "0.00",
-  discount_amount: "0.00",
   gst_rate: "18.00",
   cess_rate: "0.00",
 });
@@ -111,24 +133,29 @@ function requestErrorMessage(error: unknown, fallback: string): string {
 }
 
 export default function PurchaseOrdersPage() {
-  const authStatus = useAuthStatus();
-  const [entryMode, setEntryMode] = useState<EntryMode>("manual");
+  return <RetainedBillEntry kind="purchase">{props => <PurchaseOrderForm {...props} />}</RetainedBillEntry>;
+}
+
+function PurchaseOrderForm({ entry, authStatus }: { entry: InvoiceEntrySession; authStatus: AuthStatus }) {
+  const [entryMode] = useState<EntryMode>("manual");
   const [sellerProfiles, setSellerProfiles] = useState<NonNullable<SellerProfileResponse["seller_profile"]>[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-  const [supplierId, setSupplierId] = useState("");
-  const [manualSupplier, setManualSupplier] = useState<PartyForm>(blankParty);
-  const [orderDate, setOrderDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
-  const [paymentTerms, setPaymentTerms] = useState("Advance before dispatch");
-  const [discountAmount, setDiscountAmount] = useState("0.00");
-  const [lines, setLines] = useState<DraftLine[]>([initialLine(1)]);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [supplierId, setSupplierId] = useInvoiceEntryValue(entry, "supplierId", "");
+  const [manualSupplier, setManualSupplier] = useInvoiceEntryValue<PartyForm>(entry, "manualSupplier", blankParty);
+  const [orderDate, setOrderDate] = useInvoiceEntryValue(entry, "orderDate", indiaDateInputValue);
+  const [purchaseOrderNumber, setPurchaseOrderNumber] = useInvoiceEntryValue(entry, "purchaseOrderNumber", "");
+  const [purchaseOrderNumberError, setPurchaseOrderNumberError] = useInvoiceEntryValue<string | null>(entry, "purchaseOrderNumberError", null);
+  const [supplierErrors, setSupplierErrors] = useInvoiceEntryValue<Record<string, string>>(entry, "supplierErrors", () => ({}));
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useInvoiceEntryValue(entry, "expectedDeliveryDate", "");
+  const [transportMode, setTransportMode] = useInvoiceEntryValue(entry, "transportMode", "");
+  const [paymentTerms, setPaymentTerms] = useInvoiceEntryValue(entry, "paymentTerms", "Advance before dispatch");
+  const [lines, setLines] = useInvoiceEntryValue<DraftLine[]>(entry, "lines", () => [initialLine(1)]);
+  const [error, setError] = useInvoiceEntryValue<string | null>(entry, "error", null);
+  const [message, setMessage] = useInvoiceEntryValue<string | null>(entry, "message", null);
+  const [preview, setPreview] = useState<InvoicePreview | null>(null);
   const [isBillingDataLoaded, setIsBillingDataLoaded] = useState(false);
-  const [savedPurchaseOrder, setSavedPurchaseOrder] = useState<PurchaseOrder | null>(null);
+  const [versionConflict, setVersionConflict] = useInvoiceEntryValue(entry, "versionConflict", false);
   const activeSellerProfile = useMemo(
     () => sellerProfiles.find((profile) => profile.is_active) ?? sellerProfiles[0] ?? null,
     [sellerProfiles],
@@ -137,25 +164,34 @@ export default function PurchaseOrdersPage() {
 
   useEffect(() => {
     if (authStatus !== "authenticated") return;
+    let cancelled = false;
     async function loadData() {
       setIsBillingDataLoaded(false);
       try {
-        const [profileResult, supplierResult, productResult, orderResult] = await Promise.allSettled([
+        const [profileResult, supplierResult, productResult] = await Promise.allSettled([
           apiRequest<SellerProfileResponse>("/companies/profile"),
           apiRequest<Supplier[]>("/suppliers"),
           apiRequest<Product[]>("/products"),
-          apiRequest<PurchaseOrder[]>("/purchase-orders"),
         ]);
+        if (cancelled || !entry.active) return;
         const loadErrors: string[] = [];
         const sellerProfile = profileResult.status === "fulfilled" ? profileResult.value.seller_profile : null;
         const profileList = sellerProfile ? [sellerProfile] : [];
         if (profileResult.status === "rejected") loadErrors.push(`Seller profile: ${requestErrorMessage(profileResult.reason, "unable to load")}`);
-        if (supplierResult.status === "fulfilled") setSuppliers(supplierResult.value);
+        if (supplierResult.status === "fulfilled") {
+          setSuppliers(supplierResult.value);
+          const savedSupplier = supplierResult.value.find((supplier) => supplier.is_active && supplier.is_default) ?? supplierResult.value.find((supplier) => supplier.is_active) ?? null;
+          if (!entry.read("supplierInitialized", false)) {
+            if (!entry.read("supplierId", "") && !entry.read("manualSupplier", blankParty()).name.trim()) {
+              setSupplierId(savedSupplier ? String(savedSupplier.id) : "");
+              if (savedSupplier) setManualSupplier(supplierToParty(savedSupplier));
+            }
+            entry.write("supplierInitialized", true);
+          }
+        }
         else loadErrors.push(`Saved suppliers: ${requestErrorMessage(supplierResult.reason, "unable to load")}`);
         if (productResult.status === "fulfilled") setProducts(productResult.value);
         else loadErrors.push(`Saved products: ${requestErrorMessage(productResult.reason, "unable to load")}`);
-        if (orderResult.status === "fulfilled") setPurchaseOrders(orderResult.value);
-        else loadErrors.push(`Recent purchase orders: ${requestErrorMessage(orderResult.reason, "unable to load")}`);
         setSellerProfiles(profileList);
         const activeProfile = profileList.find((profile) => profile.is_active) ?? profileList[0] ?? null;
         if (activeProfile?.state_code) {
@@ -163,16 +199,19 @@ export default function PurchaseOrdersPage() {
         }
         if (loadErrors.length) setError(`Some purchase data could not load. ${loadErrors.join(" ")}`);
       } catch (requestError) {
+        if (cancelled || !entry.active) return;
         setError(requestErrorMessage(requestError, "Unable to load purchase order data."));
       } finally {
-        setIsBillingDataLoaded(true);
+        if (!cancelled && entry.active) setIsBillingDataLoaded(true);
       }
     }
     void loadData();
-  }, [authStatus]);
+    return () => { cancelled = true; };
+  }, [authStatus, entry, setSupplierId, setManualSupplier, setError]);
 
   function updateSupplier(field: keyof PartyForm, value: string) {
     setManualSupplier((current) => ({ ...current, [field]: value }));
+    setSupplierErrors({});
   }
 
   function updateLine(key: number, changes: Partial<DraftLine>) {
@@ -195,20 +234,21 @@ export default function PurchaseOrdersPage() {
 
   function buildPayload() {
     return {
-      ...(entryMode === "saved" ? { supplier_id: asNumber(supplierId) } : { supplier: supplierPayload(manualSupplier) }),
+      ...(supplierId ? { supplier_id: asNumber(supplierId) } : { supplier: supplierPayload(manualSupplier) }),
       order_date: orderDate,
+      ...(purchaseOrderNumber.trim() ? { purchase_order_number: purchaseOrderNumber.trim() } : {}),
       expected_delivery_date: expectedDeliveryDate || null,
+      transport_mode: transportMode.trim() || null,
       payment_terms: paymentTerms || null,
-      discount_amount: discountAmount,
       lines: lines.map((line) => ({
-        ...(entryMode === "saved" ? { product_id: asNumber(line.product_id) } : { product_name: line.product_name }),
+        ...(line.product_id ? { product_id: asNumber(line.product_id) } : {}),
+        product_name: line.product_name || null,
         description: line.description || null,
         hsn_sac: line.hsn_sac || null,
         quantity: line.quantity,
         unit: line.unit || null,
         rate: line.rate || null,
         other_charge: line.other_charge,
-        discount_amount: line.discount_amount,
         gst_rate: line.gst_rate || null,
         cess_rate: line.cess_rate || null,
       })),
@@ -219,9 +259,8 @@ export default function PurchaseOrdersPage() {
     if (!isBillingDataLoaded) return "Billing setup is still loading. Try again in a moment.";
     if (!sellerProfileReady) return "Set up Seller/GST profile first before saving purchase orders.";
     if (!orderDate) return "Enter the PO date before saving.";
-    if (entryMode === "saved" && !supplierId) return "Select a saved supplier, or switch to Manual entry and enter the supplier details.";
-    if (entryMode === "manual" && !partyComplete(manualSupplier)) {
-      return "Complete supplier name, address line 1, city, state, state code and postal code before saving.";
+    if (!supplierId && !partyComplete(manualSupplier)) {
+      return "Complete seller name, address line 1, city, state, state code and postal code before saving.";
     }
 
     const incompleteLineIndex = lines.findIndex((line) => !lineComplete(line, entryMode));
@@ -235,93 +274,100 @@ export default function PurchaseOrdersPage() {
     return null;
   }
 
-  async function reloadPurchaseOrders() {
-    const [orderResult, supplierResult, productResult] = await Promise.allSettled([
-      apiRequest<PurchaseOrder[]>("/purchase-orders"),
+  async function reloadPurchaseMasters() {
+    const [supplierResult, productResult] = await Promise.allSettled([
       apiRequest<Supplier[]>("/suppliers"),
       apiRequest<Product[]>("/products"),
     ]);
-    if (orderResult.status === "fulfilled") setPurchaseOrders(orderResult.value);
     if (supplierResult.status === "fulfilled") setSuppliers(supplierResult.value);
     if (productResult.status === "fulfilled") setProducts(productResult.value);
-    const failures = [orderResult, supplierResult, productResult].filter((result) => result.status === "rejected");
+    const failures = [supplierResult, productResult].filter((result) => result.status === "rejected");
     if (failures.length) throw failures[0].reason;
   }
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setPurchaseOrderNumberError(null);
+    setSupplierErrors({});
     setMessage(null);
-
-    const validationError = validatePurchaseOrder();
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const saved = await apiRequest<PurchaseOrder>("/purchase-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload()),
-      });
-      setSavedPurchaseOrder(saved);
-      setMessage(`Purchase order ${saved.purchase_order_number} saved. Supplier/product values are now available for choice mode.`);
-      await reloadPurchaseOrders();
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to save purchase order.");
-    } finally {
-      setIsSaving(false);
-    }
+    await submission.save();
   }
-
-  async function generatePurchaseOrderPdf(purchaseOrderId: number) {
-    setError(null);
-    setMessage(null);
-    try {
-      const generated = await apiRequest<PurchaseOrder>(`/purchase-orders/${purchaseOrderId}/generate-pdf`, { method: "POST" });
-      setSavedPurchaseOrder((current) => (current?.id === purchaseOrderId ? generated : current));
-      await reloadPurchaseOrders();
-      setMessage("Purchase order PDF generated.");
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to generate purchase order PDF.");
-    }
-  }
-
-  async function downloadPurchaseOrderPdf(purchaseOrderId: number) {
-    setError(null);
-    try {
-      await downloadFile(`/purchase-orders/${purchaseOrderId}/pdf`, `purchase-order-${purchaseOrderId}.pdf`);
-      setMessage("Purchase order PDF downloaded.");
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to download purchase order PDF.");
-    }
-  }
-
-  async function previewPurchaseOrderPdf(purchaseOrderId: number, autoPrint = false) {
-    setError(null);
-    try {
-      await previewPdf(`/purchase-orders/${purchaseOrderId}/pdf`, `purchase-order-${purchaseOrderId}.pdf`, autoPrint);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to open purchase order PDF preview.");
-    }
-  }
+  const payload = buildPayload();
+  const signature = JSON.stringify(payload);
+  const ready = !validatePurchaseOrder();
+  const submission = useBillSubmission<PurchaseOrder>({
+    entrySession: entry,
+    collection: "/purchase-orders", payload, updateField: "domestic_details", validate: (): string | null => savedBill.blocked ? "Load the saved order successfully before saving; your fields are retained." : validatePurchaseOrder(),
+    onCreated: reloadPurchaseMasters,
+    onStartNew: (): void => {
+      submission.reset();
+      const supplier = suppliers.find((item) => item.is_active && item.is_default) ?? suppliers.find((item) => item.is_active);
+      setSupplierId(supplier ? String(supplier.id) : ""); setManualSupplier(supplier ? supplierToParty(supplier) : blankParty());
+      setOrderDate(indiaDateInputValue()); setPurchaseOrderNumber(""); setExpectedDeliveryDate(""); setTransportMode("");
+      setPaymentTerms("Advance before dispatch"); setLines([initialLine(1)]); setPreview(null); setError(null); setMessage(null);
+      setVersionConflict(false); setPurchaseOrderNumberError(null); setSupplierErrors({});
+    },
+    onFailure: (failure) => {
+      if (!(failure instanceof ApiError)) return;
+      const detail = failure.detail;
+      setVersionConflict(failure.status === 409 && typeof detail === "object" && detail !== null && "code" in detail && detail.code === "version_conflict");
+      if (Array.isArray(detail)) {
+        setSupplierErrors(Object.fromEntries(detail.map((issue: { loc?: (string | number)[]; msg?: string }) => [
+          (issue.loc ?? []).filter((part) => part !== "body" && part !== "domestic_details").join("."), issue.msg ?? "Invalid value",
+        ])));
+        const issue = detail.find((item: { loc?: (string | number)[] }) => item.loc?.includes("purchase_order_number"));
+        if (issue) setPurchaseOrderNumberError(issue.msg ?? "Enter a valid PO No.");
+      } else if (detail && typeof detail === "object" && "field" in detail && detail.field === "purchase_order_number") {
+        setPurchaseOrderNumberError("message" in detail ? String(detail.message) : "Enter a different PO No.");
+      }
+    },
+  });
+  const savedBill = useSavedBillLoader<PurchaseOrder>({
+    collection: "/purchase-orders", parameter: "order", documentType: "domestic_oils", authenticated: authStatus === "authenticated", ready: isBillingDataLoaded,
+    document: submission.document, busy: submission.busy, unsaved: submission.unsaved,
+    hasWork: Boolean(submission.document || purchaseOrderNumber || lines.some((line) => line.product_name || line.product_id)),
+    hydrate: (order) => {
+      setSupplierId(String(order.supplier_id)); setManualSupplier(purchaseOrderSellerValues(order));
+      setOrderDate(order.order_date); setPurchaseOrderNumber(order.purchase_order_number);
+      setExpectedDeliveryDate(order.expected_delivery_date ?? ""); setTransportMode(order.transport_mode ?? ""); setPaymentTerms(order.payment_terms ?? "");
+      setLines(order.lines.map((line, index) => ({ ...initialLine(index + 1), ...line, key: index + 1, product_id: String(line.product_id) })));
+      submission.restore(order); setVersionConflict(false); setError(null); setMessage(`Loaded ${order.purchase_order_number}. ${["draft", "amendment_pending"].includes(order.status) ? "Edit this saved revision, then Preview and Confirm." : "Submitted/finalized financial data is read-only."}`);
+    },
+  });
+  const isSaving = submission.busy;
+  const displayedSeller = submission.document ? purchaseOrderSellerValues(submission.document) : manualSupplier;
+  useEffect(() => {
+    const order = submission.document;
+    if (!order) return;
+    const snapshot = purchaseOrderSellerValues(order);
+    const unchanged = supplierId ? Number(supplierId) === order.supplier_id
+      : (Object.keys(snapshot) as (keyof PartyForm)[]).every((field) => manualSupplier[field].trim() === snapshot[field].trim());
+    if (unchanged) return;
+    // A retry may recover a committed creation before a changed-seller PATCH
+    // fails. Restore only its fixed identity; retain all other entered fields.
+    setSupplierId(String(order.supplier_id));
+    setManualSupplier(snapshot);
+  }, [submission.document, supplierId, manualSupplier, setSupplierId, setManualSupplier]);
+  useEffect(() => {
+    if (!ready || savedBill.blocked || authStatus !== "authenticated") { setPreview(null); return; }
+    let cancelled = false;
+    setPreview(null);
+    const timer = window.setTimeout(() => {
+      void apiRequest<InvoicePreview>("/purchase-orders/preview", { method: "POST", body: signature })
+        .then((result) => { if (!cancelled) setPreview(result); }).catch(() => { if (!cancelled) setPreview(null); });
+    }, 350);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [authStatus, ready, signature, savedBill.blocked]);
 
   return (
     <AuthGateStatus status={authStatus}>
       <AppShell>
-        <div className="w-full px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
-          <section>
-            <Link href="/purchase-orders#recent-purchase-orders" className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold uppercase tracking-[0.12em] text-[#516bb1] shadow-sm transition hover:border-[#6f8fe8] hover:text-ink">
-              Recent Purchase Orders
-            </Link>
-            <p className="mt-6 text-[11px] font-bold uppercase tracking-[0.22em] text-[#6f8fe8]">Purchase workflow</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-ink sm:text-[40px]">Purchase order entry</h1>
-          </section>
+        <div className="workspace-page">
+          <PageHeader icon="purchase-order" eyebrow="Purchase workflow" title="Purchase order entry" description="Capture supplier and raw material details in one readable workspace. Your entries remain separate from sales invoices." />
 
           {isBillingDataLoaded && !sellerProfileReady && (
-            <div className="mt-6 rounded-xl border border-[#ffe1bd] bg-[#fff8ef] px-4 py-3 text-sm font-medium text-[#b46b22]">
+            <div className="ui-alert mt-6 border-amber-200 bg-amber-50 text-amber-900">
               Set up Seller/GST profile first before creating bills.{" "}
               <Link className="font-bold underline decoration-[#b46b22]/40 underline-offset-4" href="/branches">
                 Open Seller/GST profile
@@ -330,69 +376,48 @@ export default function PurchaseOrdersPage() {
           )}
 
           {(error || message) && (
-            <div className={`mt-6 rounded-xl px-4 py-3 text-sm font-medium ${error ? "bg-[#fff0df] text-[#b46b22]" : "bg-[#dff8ee] text-[#24735b]"}`}>
+            <div className={`ui-alert mt-6 ${error ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-warm-green text-peacock"}`} role={error ? "alert" : "status"}>
               {error ?? message}
             </div>
           )}
 
-          {savedPurchaseOrder && (
-            <section className="mt-6 rounded-[22px] border border-[#cfdcff] bg-[#f0f4ff] p-5 sm:p-6">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#516bb1]">Saved bill actions</p>
-                  <h2 className="mt-2 text-lg font-semibold text-ink">{savedPurchaseOrder.purchase_order_number}</h2>
-                  <p className="mt-1 text-sm text-slate-500">Generate the PDF, then preview, download or print it whenever needed.</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {!savedPurchaseOrder.pdf_storage_key && <button className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-600" onClick={() => void generatePurchaseOrderPdf(savedPurchaseOrder.id)} type="button">Generate PDF</button>}
-                  {savedPurchaseOrder.pdf_storage_key && <>
-                    <button className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#516bb1]" onClick={() => void previewPurchaseOrderPdf(savedPurchaseOrder.id)} type="button">Preview PDF</button>
-                    <button className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#516bb1]" onClick={() => void downloadPurchaseOrderPdf(savedPurchaseOrder.id)} type="button">Download PDF</button>
-                    <button className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white" onClick={() => void previewPurchaseOrderPdf(savedPurchaseOrder.id, true)} type="button">Print PDF</button>
-                  </>}
-                </div>
-              </div>
-            </section>
-          )}
+          {savedBill.blocked && <div className="ui-alert mt-4" role={savedBill.error ? "alert" : "status"}>{savedBill.error || "Loading the saved bill…"}
+            {savedBill.error && <button className="ui-button ml-3" type="button" onClick={savedBill.retry}>Retry loading bill</button>}
+          </div>}
+          {versionConflict && <button className="ui-button mt-3" type="button" disabled={submission.busy} onClick={savedBill.reloadLatest}>Reload latest revision</button>}
 
           <section className="mt-8">
-            <form noValidate onSubmit={handleSave} className="w-full rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-panel sm:p-6 lg:p-8">
-              <div className="flex flex-wrap gap-2 rounded-2xl bg-slate-50 p-2">
-                {(["manual", "saved"] as EntryMode[]).map((mode) => (
-                  <button key={mode} type="button" onClick={() => setEntryMode(mode)} className={`${toggleClass} ${entryMode === mode ? "bg-ink text-white" : "text-slate-500 hover:bg-white"}`}>
-                    {mode === "manual" ? "Manual entry" : "Use saved data"}
-                  </button>
-                ))}
-              </div>
+            <form data-bill-entry noValidate onSubmit={handleSave} className="ui-panel w-full p-5 sm:p-7 lg:p-8">
+              <fieldset disabled={submission.locked || savedBill.blocked} className="min-w-0">
+              <section className="mt-6 rounded-2xl border border-line p-4 sm:p-5" aria-label="Seller">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="text-base font-bold text-ink">Seller</h2>
+                  <Link href="/suppliers" className="ui-button px-3 py-2 text-xs"><AppIcon name="suppliers" size={15} />Manage sellers</Link>
+                </div>
+                <label className="ui-label mt-4 block max-w-xl">Saved seller
+                  <select aria-label="Saved seller" className={inputClass} disabled={Boolean(submission.document)} value={supplierId} onChange={(event) => {
+                    const id = event.target.value;
+                    setSupplierId(id);
+                    const selected = suppliers.find((supplier) => String(supplier.id) === id);
+                    setManualSupplier(selected ? supplierToParty(selected) : blankParty());
+                    setSupplierErrors({});
+                  }}>
+                    <option value="">Enter seller manually</option>
+                    {suppliers.filter((supplier) => supplier.is_active || String(supplier.id) === supplierId).map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}{supplier.is_default ? " · Default" : ""}</option>)}
+                  </select>
+                  {supplierErrors.supplier_id && <span className="mt-1 block text-xs text-red-700" role="alert">{supplierErrors.supplier_id}</span>}
+                </label>
+                <PurchaseOrderSellerFields details={displayedSeller} onChange={updateSupplier} errors={supplierErrors} readOnly={Boolean(supplierId) || Boolean(submission.document)} />
+                {submission.document && <p className="mt-3 text-xs text-slate-500">The seller is fixed for this saved order. Start a new order to choose another seller.</p>}
+              </section>
+              <PurchaseOrderShippingDetails details={displayedSeller} />
 
               <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {entryMode === "saved" ? (
-                  <label className="text-xs font-semibold text-slate-500">
-                    Supplier
-                    <select className={inputClass} onChange={(event) => setSupplierId(event.target.value)} required value={supplierId}>
-                      <option value="">{suppliers.length ? "Select saved supplier" : "No saved suppliers yet"}</option>
-                      {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-                    </select>
-                  </label>
-                ) : (
-                  <>
-                    <label className="text-xs font-semibold text-slate-500">Supplier/provider name<input className={inputClass} onChange={(event) => updateSupplier("name", event.target.value)} required value={manualSupplier.name} /></label>
-                    <label className="text-xs font-semibold text-slate-500">GSTIN<input className={inputClass} maxLength={15} onChange={(event) => updateSupplier("gstin", event.target.value.toUpperCase())} value={manualSupplier.gstin} /></label>
-                    <label className="text-xs font-semibold text-slate-500">PAN<input className={inputClass} maxLength={10} onChange={(event) => updateSupplier("pan", event.target.value.toUpperCase())} value={manualSupplier.pan} /></label>
-                    <label className="text-xs font-semibold text-slate-500">Phone<input className={inputClass} onChange={(event) => updateSupplier("phone", event.target.value)} value={manualSupplier.phone} /></label>
-                    <label className="text-xs font-semibold text-slate-500">Email<input className={inputClass} onChange={(event) => updateSupplier("email", event.target.value)} type="email" value={manualSupplier.email} /></label>
-                    <label className="text-xs font-semibold text-slate-500 lg:col-span-2">Address line 1<AutoResizeTextarea className={inputClass} onChange={(event) => updateSupplier("address_line1", event.target.value)} required rows={1} value={manualSupplier.address_line1} /></label>
-                    <label className="text-xs font-semibold text-slate-500 lg:col-span-2">Address line 2<AutoResizeTextarea className={inputClass} onChange={(event) => updateSupplier("address_line2", event.target.value)} rows={1} value={manualSupplier.address_line2} /></label>
-                    <label className="text-xs font-semibold text-slate-500">City<input className={inputClass} onChange={(event) => updateSupplier("city", event.target.value)} required value={manualSupplier.city} /></label>
-                    <label className="text-xs font-semibold text-slate-500">State<input className={inputClass} onChange={(event) => updateSupplier("state", event.target.value)} required value={manualSupplier.state} /></label>
-                    <label className="text-xs font-semibold text-slate-500">State code<input className={inputClass} maxLength={2} onChange={(event) => updateSupplier("state_code", event.target.value)} required value={manualSupplier.state_code} /></label>
-                    <label className="text-xs font-semibold text-slate-500">Postal code<input className={inputClass} onChange={(event) => updateSupplier("postal_code", event.target.value)} required value={manualSupplier.postal_code} /></label>
-                  </>
-                )}
+                <label className="text-xs font-semibold text-slate-500">PO No.<input aria-label="PO No." aria-invalid={Boolean(purchaseOrderNumberError)} aria-describedby={purchaseOrderNumberError ? "po-number-error" : "po-number-hint"} className={inputClass} maxLength={100} onChange={(event) => { setPurchaseOrderNumber(event.target.value.toUpperCase()); setPurchaseOrderNumberError(null); }} placeholder="Enter your full PO number" value={purchaseOrderNumber} />{purchaseOrderNumberError ? <span id="po-number-error" role="alert" className="mt-1 block text-xs text-red-700">{purchaseOrderNumberError}</span> : <span id="po-number-hint" className="mt-1 block text-xs font-normal">Leave blank for automatic numbering.</span>}</label>
                 <label className="text-xs font-semibold text-slate-500">PO date<input className={inputClass} onChange={(event) => setOrderDate(event.target.value)} required type="date" value={orderDate} /></label>
                 <label className="text-xs font-semibold text-slate-500">Expected delivery date<input className={inputClass} onChange={(event) => setExpectedDeliveryDate(event.target.value)} type="date" value={expectedDeliveryDate} /></label>
+                <label className="text-xs font-semibold text-slate-500">Dispatched through<input aria-label="Dispatched through" aria-invalid={Boolean(supplierErrors.transport_mode)} aria-describedby={supplierErrors.transport_mode ? "po-dispatch-error" : undefined} className={inputClass} maxLength={100} placeholder="e.g. ROAD, RAIL or Courier" type="text" value={transportMode} onChange={(event) => { setTransportMode(event.target.value); setSupplierErrors((current) => { const next = { ...current }; delete next.transport_mode; return next; }); }} />{supplierErrors.transport_mode && <span id="po-dispatch-error" role="alert" className="mt-1 block text-xs text-red-700">{supplierErrors.transport_mode}</span>}</label>
                 <label className="text-xs font-semibold text-slate-500 lg:col-span-2">Payment terms<AutoResizeTextarea className={inputClass} onChange={(event) => setPaymentTerms(event.target.value)} rows={1} value={paymentTerms} /></label>
-                <label className="text-xs font-semibold text-slate-500">Header discount<input className={inputClass} onChange={(event) => setDiscountAmount(event.target.value)} value={discountAmount} /></label>
               </div>
 
               <div className="mt-7 space-y-4">
@@ -424,7 +449,6 @@ export default function PurchaseOrdersPage() {
                       <label className="text-xs font-semibold text-slate-500">Unit<input className={inputClass} onChange={(event) => updateLine(line.key, { unit: event.target.value })} required={entryMode === "manual"} value={line.unit} /></label>
                       <label className="text-xs font-semibold text-slate-500">Rate<input className={inputClass} onChange={(event) => updateLine(line.key, { rate: event.target.value })} required={entryMode === "manual"} value={line.rate} /></label>
                       <label className="text-xs font-semibold text-slate-500">Other charge<input className={inputClass} onChange={(event) => updateLine(line.key, { other_charge: event.target.value })} value={line.other_charge} /></label>
-                      <label className="text-xs font-semibold text-slate-500">Line discount<input className={inputClass} onChange={(event) => updateLine(line.key, { discount_amount: event.target.value })} value={line.discount_amount} /></label>
                       <label className="text-xs font-semibold text-slate-500">GST %<input className={inputClass} onChange={(event) => updateLine(line.key, { gst_rate: event.target.value })} required={entryMode === "manual"} value={line.gst_rate} /></label>
                       <label className="text-xs font-semibold text-slate-500">Cess %<input className={inputClass} onChange={(event) => updateLine(line.key, { cess_rate: event.target.value })} value={line.cess_rate} /></label>
                     </div>
@@ -432,39 +456,19 @@ export default function PurchaseOrdersPage() {
                 ))}
               </div>
 
-              <button className="mt-6 w-full rounded-xl bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-[#243653] disabled:cursor-not-allowed disabled:opacity-60" disabled={isSaving || !isBillingDataLoaded || !sellerProfileReady} type="submit">
+              <button className="mt-6 w-full rounded-xl bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-[#132f40] disabled:cursor-not-allowed disabled:opacity-60" disabled={isSaving || !isBillingDataLoaded || !sellerProfileReady} type="submit">
                 {isSaving ? "Saving PO…" : !sellerProfileReady ? "Set up Seller/GST profile first" : "Save purchase order"}
               </button>
+              </fieldset>
             </form>
+            <article className="ui-panel mt-6">
+              <h2 className="ui-section-title">Live backend preview</h2>
+              <dl className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">{[["Taxable value", preview?.taxable_value], ["CGST", preview?.cgst_amount], ["SGST", preview?.sgst_amount], ["IGST", preview?.igst_amount], ["Round-off", preview?.round_off], ["Final total", preview?.final_total]].map(([label, value]) => <div key={label}><dt className="text-xs text-slate">{label}</dt><dd className="mt-1 font-semibold text-ink">{value ?? "—"}</dd></div>)}</dl>
+              <p className="mt-4 text-xs text-slate">{preview?.amount_in_words ?? "Complete required fields to preview backend totals."}</p>
+            </article>
+            <BillSubmissionPanel submission={submission} ready={ready && !savedBill.blocked} documentNumber={submission.document?.purchase_order_number} />
+            {submission.document?.status === "approved" && <button className="ui-button mt-4" disabled={submission.busy} type="button" onClick={() => { const reason = window.prompt("Reason for this amendment:"); if (reason?.trim()) void submission.amend(reason); }}>Request amendment</button>}
 
-            <div className="mt-6 grid gap-6 lg:grid-cols-2">
-              <article id="recent-purchase-orders" className="rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-panel sm:p-6">
-              <h2 className="text-lg font-semibold tracking-tight text-ink">Recent purchase orders</h2>
-              <div className="mt-4 space-y-3">
-                {purchaseOrders.map((order) => (
-                  <div key={order.id} className="rounded-2xl border border-slate-100 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-ink">{order.purchase_order_number}</p>
-                        <p className="mt-1 text-xs text-slate-400">{order.supplier_name} · {order.status}</p>
-                      </div>
-                      <p className="text-sm font-semibold text-ink">₹{order.final_total}</p>
-                    </div>
-                    <p className="mt-3 text-xs leading-5 text-slate-400">{order.lines.length} line item{order.lines.length === 1 ? "" : "s"}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {!order.pdf_storage_key && <button className="rounded-lg bg-[#f0f4ff] px-3 py-2 text-xs font-semibold text-[#516bb1]" onClick={() => void generatePurchaseOrderPdf(order.id)} type="button">Generate PDF</button>}
-                      {order.pdf_storage_key && <>
-                        <button className="rounded-lg bg-[#f0f4ff] px-3 py-2 text-xs font-semibold text-[#516bb1]" onClick={() => void previewPurchaseOrderPdf(order.id)} type="button">Preview PDF</button>
-                        <button className="rounded-lg bg-[#f0f4ff] px-3 py-2 text-xs font-semibold text-[#516bb1]" onClick={() => void downloadPurchaseOrderPdf(order.id)} type="button">Download PDF</button>
-                        <button className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white" onClick={() => void previewPurchaseOrderPdf(order.id, true)} type="button">Print PDF</button>
-                      </>}
-                    </div>
-                  </div>
-                ))}
-                {purchaseOrders.length === 0 && <p className="text-sm text-slate-400">No purchase orders yet.</p>}
-              </div>
-              </article>
-            </div>
           </section>
         </div>
       </AppShell>

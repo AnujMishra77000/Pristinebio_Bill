@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from unittest.mock import MagicMock, patch
 
 from app.main import app
 
@@ -11,6 +12,24 @@ def test_health_endpoint_returns_ok():
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_health_returns_correlation_id():
+    response = client.get("/health", headers={"X-Request-ID": "phase4-check"})
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "phase4-check"
+
+
+def test_readiness_checks_database():
+    connection = MagicMock()
+    with patch("app.main.engine.connect") as connect:
+        connect.return_value.__enter__.return_value = connection
+        response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+    connection.execute.assert_called_once()
 
 
 def test_versioned_status_endpoint_returns_api_version():

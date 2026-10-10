@@ -35,8 +35,18 @@ def _mock_api(route: Route) -> None:
                 "role": "admin",
                 "branch_ids": [],
                 "is_active": True,
+                "password_change_required": False,
+                "mfa_enabled": True,
+                "mfa_required": True,
+                "mfa_verified": True,
             },
         )
+        return
+    if url.endswith("/api/v1/auth/csrf"):
+        _json(route, {"csrf_token": "test-csrf"})
+        return
+    if url.endswith("/api/v1/companies/profile"):
+        _json(route, {"company": None, "seller_profile": None})
         return
     if url.endswith("/api/v1/companies"):
         _json(route, [])
@@ -61,21 +71,17 @@ def main() -> None:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page()
-        page.add_init_script(
-            """
-            window.localStorage.setItem('pristine-bio-billing.session', JSON.stringify({
-              access_token: 'test-token',
-              refresh_token: null,
-              token_type: 'bearer'
-            }));
-            """
-        )
         page.route("**/api/v1/**", _mock_api)
 
         page.goto(f"{BASE_URL}/branches")
         expect(page.get_by_role("heading", name="Seller/GST profile")).to_be_visible()
-        expect(page.get_by_text("Create company profile first").first).to_be_visible()
+        expect(page.get_by_text("Add your company and GST details to get ready for billing.", exact=True)).to_be_visible()
         expect(page.get_by_text("Branch ID")).to_have_count(0)
+        expect(page.get_by_text("Registered address is printed below your company brand on new bills.", exact=False)).to_be_visible()
+
+        page.goto(f"{BASE_URL}/suppliers")
+        expect(page.get_by_role("heading", name="Suppliers", exact=True)).to_be_visible()
+        expect(page.get_by_text("Your company registered address remains separate.", exact=False)).to_be_visible()
 
         page.goto(f"{BASE_URL}/invoices")
         expect(page.get_by_text("Set up Seller/GST profile first").first).to_be_visible()

@@ -1,0 +1,28 @@
+# Frontend Phase 2 task
+
+Read AGENTS.md, BILLING_CONTEXT and PROJECT_STATUS first. Work only in frontend auth/session components, login, users, security page, related tests/types. Do not dispatch other agents, commit, edit billing entry pages or touch any PDF/print rendering/helper code. Preserve existing dirty Phase 1 API idempotency helpers. Backend is implemented separately by controller.
+
+Replace all localStorage auth tokens. Remove old `pristine-bio-billing.session` on transition; no tokens/session credentials in storage. Session metadata and CSRF in memory only. Fetch uses credentials:include. Web Locks + singleflight refresh; BroadcastChannel carries only metadata/logout notifications. GET /auth/me returns user (below) when access cookie valid; refresh on 401 once. /auth/csrf GET returns {csrf_token}, sets HttpOnly CSRF cookie; add X-CSRF-Token to every unsafe request, including login/setup/invitations/refresh/logout. Obtain fresh CSRF after session changes; token is bound to current session. /auth/refresh POST no body returns SessionResponse. Backend latest-token rotation grace protects ordinary concurrent tabs. Logout POST /auth/logout; revoke server session before local logout state.
+
+SessionResponse = {user:User}. User fields: id,email,full_name,role,branch_ids,is_active,password_change_required:boolean,mfa_enabled:boolean,mfa_required:boolean,mfa_verified:boolean. No access/refresh tokens in JSON. GET /auth/me returns User not wrapper. Existing password hashes remain; login can return restricted User until upgrade/MFA complete. Operational backend endpoints return403 detail 'password_change_required', 'mfa_enrollment_required' or 'mfa_verification_required'. AuthFlow must complete these before entering app.
+
+Endpoints (all under /api/v1):
+- GET /auth/setup-status -> {available:boolean}. No ongoing public register. POST /auth/bootstrap-admin email/full_name/password, X-Setup-Token header -> SessionResponse201. Setup token never in frontend env.
+- POST /auth/login {email,password} -> SessionResponse.
+- POST /auth/password {current_password,new_password} -> SessionResponse (revokes all previous sessions, creates current restricted or authenticated session). New passphrase15–128 NFC Unicode chars/spaces, no composition restriction. Existing login passwords may be short until changed.
+- POST /auth/invitations/accept {token,full_name,password} -> SessionResponse201. Token read from fragment #invite=..., never query string, strip fragment after load. Admin-created invitation manually delivered; don't claim email integration.
+- POST /auth/mfa/enroll {} -> {secret,provisioning_uri}; requires current password {current_password} if MFA already enabled + {code} fresh TOTP. New/recovered restricted enrollment doesn't require extra password (login proven). POST /auth/mfa/confirm {code} -> {user,recovery_codes:string[]} (codes shown once, require user acknowledge saving). Login if mfa_enabled requires POST /auth/mfa/verify {code} -> SessionResponse. POST /auth/mfa/recover {code} -> SessionResponse: consumes recovery, clears old MFA/recovery, revokes other sessions, requires re-enrollment before privileged operations.
+- POST /auth/mfa/recovery-codes {current_password,code} -> {recovery_codes:string[]} replaces unused codes.
+- GET /auth/sessions -> [{id,created_at,last_seen_at,expires_at,current:boolean}]. DELETE /auth/sessions/{id} -> {detail}. POST /auth/logout-all -> {detail} revokes all including current.
+- GET /users -> User[]. PATCH /users/{id} {role,branch_ids,is_active,email,full_name} Admin-only. No direct user creation/password setter.
+- POST /auth/invitations {email,role,branch_ids} Admin-only -> {id,email,role,branch_ids,expires_at,token}; token only returned once. GET /auth/invitations -> same minus token + accepted_at/revoked_at. DELETE /auth/invitations/{id} -> {detail}.
+- POST /users/{id}/mfa-reset {current_password,code,reason} Admin-only: different Admin, current password+fresh TOTP, reason required. POST /users/{id}/revoke-sessions -> {detail} Admin-only.
+- GET /auth/audit -> [{id,actor_id,action,entity_type,entity_id,created_at,before,after}] Admin-only, bounded last100.
+
+Functional auth UI: normal sign-in, conditional first setup, invitation accept; password upgrade and authenticator enrollment/verification/recovery. Dedicated /security page: password change, sessions revoke, recovery-code replacement, enrollment as applicable. /users: invitation create/list/revoke/one-time link (manual delivery), edit role/assignments/active, session revoke/MFA reset, audit events. No placeholder success.
+
+Sensitive seller/GST/bank forms are Admin-only backend; frontend can show read-only/permission message for nonadmin without redesigning billing. Preserve Staff drafts and Manager/Admin approval.
+
+Critical: authentication failures must not silently discard billing input. After first successful auth, keep operational page children mounted while a reauthentication modal/overlay is shown; recover expired session in place. Failed save errors remain related; do not reset input, idempotency refs or navigate on401. Explicit logout may return login. AuthGate/useAuthStatus must genuinely check cookies on initial navigation (not fake memory session). Shared app shell renders global reauthentication support. Login network errors remain actionable without raw Failed to fetch.
+
+Test first then implement. Run frontend lint/typecheck/build and a focused browser auth regression if environment allows; existing auth-mocking scripts using localStorage need update to cookie/me/CSRF contract. Report exact files, commands/results/limits in `docs/superpowers/plans/2026-09-16-session-security-frontend-report.md` via apply_patch; final short status only. No other edits.

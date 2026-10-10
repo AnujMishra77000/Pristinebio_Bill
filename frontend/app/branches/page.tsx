@@ -4,10 +4,43 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "@/app/components/AppShell";
 import { AuthGateStatus, useAuthStatus } from "@/app/components/AuthGate";
+import { GrowingTextarea, fieldErrorsFromDetail } from "@/app/components/MasterDataPage";
+import { PageHeader } from "@/app/components/PageHeader";
 import { ApiError, apiRequest } from "@/app/lib/api";
 import type { Branch as SellerProfile, Company, SellerProfileResponse } from "@/app/lib/types";
 
-const inputClass = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-ink outline-none transition-colors focus:border-[#6f8fe8]";
+const inputClass = "ui-input mt-2";
+
+type ProfileFieldProps = {
+  name: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+  multiline?: boolean;
+  maxLength?: number;
+  type?: string;
+  error?: string;
+};
+
+function ProfileField({ name, label, value, onChange, required, multiline, maxLength, type, error }: ProfileFieldProps) {
+  const props = {
+    id: `profile-${name}`,
+    name,
+    value,
+    required,
+    maxLength,
+    "aria-invalid": Boolean(error),
+    "aria-describedby": error ? `profile-error-${name}` : undefined,
+  };
+  return (
+    <div className={multiline ? "sm:col-span-2 xl:col-span-3" : "min-w-0"}>
+      <label className="ui-label" htmlFor={props.id}>{label} {required && <span className="text-peacock" aria-hidden="true">*</span>}</label>
+      {multiline ? <GrowingTextarea {...props} className={`${inputClass} min-h-24 resize-y`} onChange={(event) => onChange(event.target.value)} /> : <input {...props} className={inputClass} type={type ?? "text"} onChange={(event) => onChange(event.target.value)} />}
+      {error && <p id={`profile-error-${name}`} className="mt-2 text-xs font-medium text-peacock-deep">{error}</p>}
+    </div>
+  );
+}
 
 type CompanyForm = {
   legal_name: string;
@@ -28,6 +61,7 @@ type SellerProfileForm = {
   postal_code: string;
   phone: string;
   email: string;
+  secondary_email: string;
   bank_name: string;
   bank_branch_name: string;
   bank_account_name: string;
@@ -56,6 +90,7 @@ const blankSellerProfile: SellerProfileForm = {
   postal_code: "",
   phone: "",
   email: "",
+  secondary_email: "",
   bank_name: "",
   bank_branch_name: "",
   bank_account_name: "",
@@ -98,6 +133,7 @@ function sellerFormFromProfile(profile: SellerProfile): SellerProfileForm {
     postal_code: profile.postal_code,
     phone: profile.phone ?? "",
     email: profile.email ?? "",
+    secondary_email: profile.secondary_email ?? "",
     bank_name: profile.bank_name ?? "",
     bank_branch_name: profile.bank_branch_name ?? "",
     bank_account_name: profile.bank_account_name ?? "",
@@ -118,13 +154,15 @@ export default function SellerProfilePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingSellerProfile, setIsSavingSellerProfile] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
 
   const primaryCompany = companies[0] ?? null;
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
-    setError(null);
+    setLoadError(null);
     try {
       const profile = await apiRequest<SellerProfileResponse>("/companies/profile");
       setCompanies(profile.company ? [profile.company] : []);
@@ -138,7 +176,7 @@ export default function SellerProfilePage() {
         setSellerForm(blankSellerProfile);
       }
     } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load Seller/GST profile.");
+      setLoadError(requestError instanceof ApiError ? requestError.message : "Unable to load Seller/GST profile.");
     } finally {
       setIsLoading(false);
     }
@@ -153,6 +191,7 @@ export default function SellerProfilePage() {
     event.preventDefault();
     setError(null);
     setMessage(null);
+    setFieldErrors({});
     if (!companyForm.legal_name.trim() || !sellerForm.gstin.trim() || !sellerForm.address_line1.trim() || !sellerForm.city.trim() || !sellerForm.state.trim() || !sellerForm.postal_code.trim()) {
       setError("Complete the legal company name, GSTIN, seller address, city, state and postal code before saving.");
       return;
@@ -175,6 +214,7 @@ export default function SellerProfilePage() {
           postal_code: sellerForm.postal_code,
           phone: sellerForm.phone || null,
           email: sellerForm.email || null,
+          secondary_email: sellerForm.secondary_email || null,
           bank_name: sellerForm.bank_name || null,
           bank_branch_name: sellerForm.bank_branch_name || null,
           bank_account_name: sellerForm.bank_account_name || null,
@@ -192,6 +232,7 @@ export default function SellerProfilePage() {
       if (response.seller_profile) setSellerForm(sellerFormFromProfile(response.seller_profile));
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to save Seller/GST profile.");
+      if (requestError instanceof ApiError) setFieldErrors(fieldErrorsFromDetail(requestError.detail, [...Object.keys(companyForm), ...Object.keys(sellerForm)]));
     } finally {
       setIsSavingSellerProfile(false);
     }
@@ -202,124 +243,125 @@ export default function SellerProfilePage() {
     setSellerForm(sellerFormFromProfile(profile));
     setMessage("Editing Seller/GST profile.");
     setError(null);
+    setFieldErrors({});
+  }
+
+  function companyField(name: keyof CompanyForm, label: string, options: Partial<Pick<ProfileFieldProps, "required" | "multiline" | "maxLength">> = {}) {
+    return <ProfileField name={name} label={label} value={companyForm[name]} error={fieldErrors[name]} {...options} onChange={(value) => setCompanyForm((current) => ({ ...current, [name]: name === "pan" ? value.toUpperCase() : value }))} />;
+  }
+
+  function sellerField(name: Exclude<keyof SellerProfileForm, "is_active">, label: string, options: Partial<Pick<ProfileFieldProps, "required" | "multiline" | "maxLength" | "type">> = {}) {
+    return <ProfileField name={name} label={label} value={sellerForm[name]} error={fieldErrors[name]} {...options} onChange={(value) => setSellerForm((current) => ({ ...current, [name]: name === "gstin" || name === "bank_ifsc_code" ? value.toUpperCase() : value }))} />;
   }
 
   return (
     <AuthGateStatus status={authStatus}>
       <AppShell>
-        <div className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
-          <section>
-            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#6f8fe8]">Company setup</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-ink sm:text-[40px]">Seller/GST profile</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500 sm:text-[15px]">
-              Set this once for your company. Sales invoices and purchase orders use these legal seller details automatically, so billing pages do not need branch selection.
-            </p>
-          </section>
+        <div className="workspace-page">
+          <PageHeader
+            icon="seller-profile"
+            eyebrow="Company setup"
+            title="Seller/GST profile"
+            description="Your company identity, GST details and invoice defaults for future bills."
+          />
 
-          {(error || message) && (
-            <div className={`mt-6 rounded-xl px-4 py-3 text-sm font-medium ${error ? "bg-[#fff0df] text-[#b46b22]" : "bg-[#dff8ee] text-[#24735b]"}`}>
-              {error ?? message}
+          {isLoading && <div className="ui-panel mt-7 animate-pulse text-sm text-slate" role="status">Loading Seller/GST profile…</div>}
+          {loadError && (
+            <div className="ui-alert mt-7" role="alert">
+              <p>{loadError}</p>
+              <button className="ui-button mt-3" type="button" onClick={() => void loadData()} disabled={isLoading}>Try again</button>
             </div>
           )}
 
-          {isLoading && <p className="mt-6 text-sm text-slate-500">Loading Seller/GST profile…</p>}
-
-          {!isLoading && (
-            <section className="mt-8 grid gap-6 xl:grid-cols-[0.95fr_1.35fr]">
-              <div className="space-y-6">
-                <form onSubmit={handleProfileSubmit} className="rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-panel sm:p-6">
-                  <h2 className="text-lg font-semibold tracking-tight text-ink">Company profile</h2>
-                  <p className="mt-2 rounded-xl bg-slate-50 px-3.5 py-3 text-sm leading-6 text-slate-500">
-                    {primaryCompany ? "Update the legal details used on future bills." : "Create the company and Seller/GST profile together."}
-                  </p>
-                  <div className="mt-5 grid gap-4">
-                    <label className="text-xs font-semibold text-slate-500">Legal company name<input className={inputClass} onChange={(event) => setCompanyForm((current) => ({ ...current, legal_name: event.target.value }))} required value={companyForm.legal_name} /></label>
-                    <label className="text-xs font-semibold text-slate-500">Trade name<input className={inputClass} onChange={(event) => setCompanyForm((current) => ({ ...current, trade_name: event.target.value }))} value={companyForm.trade_name} /></label>
-                    <label className="text-xs font-semibold text-slate-500">PAN<input className={inputClass} maxLength={10} onChange={(event) => setCompanyForm((current) => ({ ...current, pan: event.target.value.toUpperCase() }))} value={companyForm.pan} /></label>
-                    <label className="text-xs font-semibold text-slate-500">Registered address<textarea className={`${inputClass} min-h-24 resize-y`} onChange={(event) => setCompanyForm((current) => ({ ...current, registered_address: event.target.value }))} value={companyForm.registered_address} /></label>
+          {!isLoading && !loadError && (
+            <div className="mt-7 space-y-6">
+              <form onSubmit={handleProfileSubmit} className="ui-panel" aria-busy={isSavingSellerProfile}>
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
+                  <div>
+                    <h2 className="ui-section-title">{editingProfileId ? "Edit company profile" : "Create company profile"}</h2>
+                    <p className="mt-2 text-sm text-slate">{primaryCompany ? "Update the details used on future invoices and purchase orders." : "Add your company and GST details to get ready for billing."}</p>
                   </div>
-                  <button className="mt-6 w-full rounded-xl bg-ink px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#243653] disabled:cursor-not-allowed disabled:opacity-60" disabled={isSavingSellerProfile} type="submit">
-                    {isSavingSellerProfile ? "Saving…" : "Save company and Seller/GST profile"}
+                  {editingProfileId && <button className="ui-button" type="button" onClick={() => { setEditingProfileId(null); setSellerForm(blankSellerProfile); setError(null); setFieldErrors({}); setMessage(null); }}>New profile</button>}
+                </div>
+
+                <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-peacock-deep">Company details</h3>
+                  <p className="text-xs text-slate">Fields marked <span className="font-bold text-peacock">*</span> are required</p>
+                </div>
+                <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {companyField("legal_name", "Legal company name", { required: true, multiline: true })}
+                  {companyField("trade_name", "Trade name")}
+                  {companyField("pan", "PAN", { maxLength: 10 })}
+                  {companyField("registered_address", "Registered address", { multiline: true })}
+                </div>
+
+                <p className="mt-3 text-xs leading-5 text-slate">Registered address is printed below your company brand on new bills. Supplier and pickup-address edits do not change it. If it is blank, the GST address below is saved as the company address for that bill.</p>
+                <h3 className="mt-7 border-t border-line pt-6 text-sm font-semibold text-peacock-deep">GST registration & contact</h3>
+                <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {sellerField("name", "Profile label", { required: true })}
+                  {sellerField("gstin", "GSTIN", { required: true, maxLength: 15 })}
+                  {sellerField("address_line1", "Address line 1", { required: true, multiline: true })}
+                  {sellerField("address_line2", "Address line 2", { multiline: true })}
+                  {sellerField("city", "City", { required: true })}
+                  {sellerField("state", "State", { required: true })}
+                  {sellerField("state_code", "State code", { required: true, maxLength: 2 })}
+                  {sellerField("postal_code", "Postal code", { required: true })}
+                  {sellerField("phone", "Phone")}
+                  {sellerField("email", "Email", { type: "email" })}
+                  {sellerField("secondary_email", "Second email", { type: "email" })}
+                </div>
+
+                <div className="mt-7 rounded-2xl border border-line bg-warm p-5">
+                  <h3 className="text-sm font-semibold text-peacock-deep">Default invoice bank details</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate">Used on new invoices when a separate bank account is not selected.</p>
+                  <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                    {sellerField("bank_name", "Bank name")}
+                    {sellerField("bank_branch_name", "Bank branch")}
+                    {sellerField("bank_account_name", "Account name")}
+                    {sellerField("bank_account_number", "Account number")}
+                    {sellerField("bank_ifsc_code", "IFSC code", { maxLength: 20 })}
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  {sellerField("terms_body", "Terms and conditions", { multiline: true, maxLength: 10000 })}
+                  <p className="mt-2 text-xs text-slate">Enter each term on a separate line.</p>
+                </div>
+                <label className="mt-5 flex w-fit items-center gap-3 rounded-xl border border-line bg-warm px-4 py-3 text-sm font-medium text-ink">
+                  <input checked={sellerForm.is_active} className="h-4 w-4 rounded border-line accent-peacock" onChange={(event) => setSellerForm((current) => ({ ...current, is_active: event.target.checked }))} type="checkbox" />
+                  Active for billing
+                </label>
+
+                {error && <div className="ui-alert mt-5" role="alert">{error}</div>}
+                {message && <div className="mt-5 rounded-xl border border-peacock/20 bg-warm-green px-4 py-3 text-sm font-medium text-peacock-deep" role="status">{message}</div>}
+                <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-line pt-5">
+                  <p className="text-xs text-slate">Company and seller details are saved together.</p>
+                  <button className="ui-button-primary w-full sm:w-auto" disabled={isSavingSellerProfile} type="submit">
+                    {isSavingSellerProfile ? "Saving…" : editingProfileId ? "Update Seller/GST profile" : "Save company and Seller/GST profile"}
                   </button>
-                </form>
+                </div>
+              </form>
 
-                <article className="rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-panel sm:p-6">
-                  <h2 className="text-lg font-semibold tracking-tight text-ink">How billing uses this</h2>
-                  <p className="mt-3 text-sm leading-6 text-slate-500">
-                    Invoice and PO forms stay clean: you enter buyer/supplier and item details only. The PDF engine pulls seller GSTIN, address and contact from this profile.
-                  </p>
-                </article>
-              </div>
-
-              <div className="space-y-6">
-                <form onSubmit={handleProfileSubmit} className="rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-panel sm:p-6">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-lg font-semibold tracking-tight text-ink">{editingProfileId ? "Edit Seller/GST profile" : "Create Seller/GST profile"}</h2>
-                      <p className="mt-1 text-xs text-slate-400">Used automatically for tax invoice and purchase-order PDFs.</p>
-                    </div>
-                    {editingProfileId && (
-                      <button className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:text-ink" onClick={() => { setEditingProfileId(null); setSellerForm(blankSellerProfile); }} type="button">
-                        New profile
-                      </button>
-                    )}
-                  </div>
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                    <label className="text-xs font-semibold text-slate-500">Profile label<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, name: event.target.value }))} required value={sellerForm.name} /></label>
-                    <label className="text-xs font-semibold text-slate-500">GSTIN<input className={inputClass} maxLength={15} onChange={(event) => setSellerForm((current) => ({ ...current, gstin: event.target.value.toUpperCase() }))} required value={sellerForm.gstin} /></label>
-                    <label className="text-xs font-semibold text-slate-500 sm:col-span-2">Address line 1<textarea className={`${inputClass} min-h-16 resize-y`} onChange={(event) => setSellerForm((current) => ({ ...current, address_line1: event.target.value }))} required value={sellerForm.address_line1} /></label>
-                    <label className="text-xs font-semibold text-slate-500 sm:col-span-2">Address line 2<textarea className={`${inputClass} min-h-16 resize-y`} onChange={(event) => setSellerForm((current) => ({ ...current, address_line2: event.target.value }))} value={sellerForm.address_line2} /></label>
-                    <label className="text-xs font-semibold text-slate-500">City<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, city: event.target.value }))} required value={sellerForm.city} /></label>
-                    <label className="text-xs font-semibold text-slate-500">State<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, state: event.target.value }))} required value={sellerForm.state} /></label>
-                    <label className="text-xs font-semibold text-slate-500">State code<input className={inputClass} maxLength={2} onChange={(event) => setSellerForm((current) => ({ ...current, state_code: event.target.value }))} required value={sellerForm.state_code} /></label>
-                    <label className="text-xs font-semibold text-slate-500">Postal code<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, postal_code: event.target.value }))} required value={sellerForm.postal_code} /></label>
-                    <label className="text-xs font-semibold text-slate-500">Phone<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, phone: event.target.value }))} value={sellerForm.phone} /></label>
-                    <label className="text-xs font-semibold text-slate-500">Email<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, email: event.target.value }))} type="email" value={sellerForm.email} /></label>
-                    <div className="sm:col-span-2 rounded-2xl border border-[#cfe8dc] bg-[#f4fbf7] p-4">
-                      <h3 className="text-sm font-semibold text-ink">Default invoice bank details</h3>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">These saved values appear in the lower-left bank section of new invoice PDFs when no separate bank master is selected.</p>
-                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                        <label className="text-xs font-semibold text-slate-500">Bank name<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, bank_name: event.target.value }))} value={sellerForm.bank_name} /></label>
-                        <label className="text-xs font-semibold text-slate-500">Bank branch<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, bank_branch_name: event.target.value }))} value={sellerForm.bank_branch_name} /></label>
-                        <label className="text-xs font-semibold text-slate-500">Account name<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, bank_account_name: event.target.value }))} value={sellerForm.bank_account_name} /></label>
-                        <label className="text-xs font-semibold text-slate-500">Account number<input className={inputClass} onChange={(event) => setSellerForm((current) => ({ ...current, bank_account_number: event.target.value }))} value={sellerForm.bank_account_number} /></label>
-                        <label className="text-xs font-semibold text-slate-500 sm:col-span-2">IFSC code<input className={inputClass} maxLength={20} onChange={(event) => setSellerForm((current) => ({ ...current, bank_ifsc_code: event.target.value.toUpperCase() }))} value={sellerForm.bank_ifsc_code} /></label>
+              <article className="ui-panel">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+                  <h2 className="ui-section-title">Saved profiles</h2>
+                  <span className="ui-badge">{sellerProfiles.length} profile{sellerProfiles.length === 1 ? "" : "s"}</span>
+                </div>
+                <div className="divide-y divide-line">
+                  {sellerProfiles.map((profile) => (
+                    <div key={profile.id} className="flex flex-wrap items-start justify-between gap-4 py-5">
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words text-base font-semibold text-ink">{profile.name}</p>
+                        <p className="mt-2 break-words text-sm text-slate">{profile.gstin} · {profile.city}, {profile.state}</p>
+                        <span className="ui-badge mt-3">{profile.is_active ? "Active for billing" : "Inactive"}</span>
                       </div>
+                      <button className="ui-button" onClick={() => editProfile(profile)} type="button">Edit profile</button>
                     </div>
-                    <label className="text-xs font-semibold text-slate-500 sm:col-span-2">Terms and conditions<textarea className={`${inputClass} min-h-28 resize-y`} maxLength={10000} onChange={(event) => setSellerForm((current) => ({ ...current, terms_body: event.target.value }))} placeholder="One term per line" value={sellerForm.terms_body} /></label>
-                    <label className="flex items-center gap-3 rounded-xl border border-slate-200 px-3.5 py-3 text-sm font-medium text-slate-600">
-                      <input checked={sellerForm.is_active} className="h-4 w-4 rounded border-slate-300" onChange={(event) => setSellerForm((current) => ({ ...current, is_active: event.target.checked }))} type="checkbox" />
-                      Active for billing
-                    </label>
-                  </div>
-                  <button className="mt-6 w-full rounded-xl bg-ink px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#243653] disabled:cursor-not-allowed disabled:opacity-60" disabled={isSavingSellerProfile} type="submit">
-                    {isSavingSellerProfile ? "Saving…" : editingProfileId ? "Update Seller/GST profile" : "Save Seller/GST profile"}
-                  </button>
-                </form>
-
-                <article className="overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-panel">
-                  <div className="border-b border-slate-100 px-5 py-4 sm:px-6">
-                    <h2 className="text-lg font-semibold tracking-tight text-ink">Saved Seller/GST profiles</h2>
-                    <p className="mt-1 text-xs text-slate-400">{sellerProfiles.length} profile{sellerProfiles.length === 1 ? "" : "s"}</p>
-                  </div>
-                  <div className="divide-y divide-slate-100">
-                    {sellerProfiles.map((profile) => (
-                      <div key={profile.id} className="flex flex-wrap items-start justify-between gap-4 px-5 py-4 sm:px-6">
-                        <div>
-                          <p className="text-sm font-semibold text-ink">{profile.name}</p>
-                          <p className="mt-1 text-xs text-slate-400">{profile.gstin} · {profile.city}, {profile.state}</p>
-                          <p className="mt-1 text-xs text-slate-400">{profile.is_active ? "Active for billing" : "Inactive"}</p>
-                        </div>
-                        <button className="rounded-lg bg-[#f0f4ff] px-3 py-2 text-xs font-semibold text-[#516bb1]" onClick={() => editProfile(profile)} type="button">
-                          Edit
-                        </button>
-                      </div>
-                    ))}
-                    {sellerProfiles.length === 0 && <p className="px-5 py-10 text-center text-sm text-slate-400 sm:px-6">No Seller/GST profile yet.</p>}
-                  </div>
-                </article>
-              </div>
-            </section>
+                  ))}
+                  {sellerProfiles.length === 0 && <div className="ui-empty py-10"><p className="font-semibold text-ink">No Seller/GST profile yet</p><p className="mt-2 text-sm text-slate">Complete the form above to save your company details.</p></div>}
+                </div>
+              </article>
+            </div>
           )}
         </div>
       </AppShell>

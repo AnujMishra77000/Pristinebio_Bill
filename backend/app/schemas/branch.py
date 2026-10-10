@@ -13,6 +13,7 @@ class BranchCreate(BaseModel):
     postal_code: str = Field(min_length=1, max_length=20)
     phone: str | None = Field(default=None, max_length=30)
     email: EmailStr | None = None
+    secondary_email: EmailStr | None = None
     bank_name: str | None = Field(default=None, max_length=255)
     bank_branch_name: str | None = Field(default=None, max_length=255)
     bank_account_name: str | None = Field(default=None, max_length=255)
@@ -34,6 +35,7 @@ class BranchUpdate(BaseModel):
     postal_code: str | None = Field(default=None, min_length=1, max_length=20)
     phone: str | None = Field(default=None, max_length=30)
     email: EmailStr | None = None
+    secondary_email: EmailStr | None = None
     bank_name: str | None = Field(default=None, max_length=255)
     bank_branch_name: str | None = Field(default=None, max_length=255)
     bank_account_name: str | None = Field(default=None, max_length=255)
@@ -58,6 +60,7 @@ class BranchRead(BaseModel):
     postal_code: str
     phone: str | None
     email: EmailStr | None
+    secondary_email: EmailStr | None
     bank_name: str | None
     bank_branch_name: str | None
     bank_account_name: str | None

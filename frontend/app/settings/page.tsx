@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { AppShell } from "@/app/components/AppShell";
+import { PageHeader } from "@/app/components/PageHeader";
 import { AuthGateStatus, useAuthStatus } from "@/app/components/AuthGate";
 import { ApiError, apiRequest } from "@/app/lib/api";
 import type { User } from "@/app/lib/types";
@@ -27,17 +28,11 @@ export default function SettingsPage() {
   return (
     <AuthGateStatus status={authStatus}>
       <AppShell>
-        <div className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">
-          <section>
-            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#6f8fe8]">Settings</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-ink sm:text-[40px]">Current user</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500 sm:text-[15px]">
-              Review the signed-in user context returned by the Phase 1B authentication API.
-            </p>
-          </section>
+        <div className="workspace-page">
+          <PageHeader icon="settings" eyebrow="Settings" title="Current user" description="Review your signed-in account and assigned seller profile access." />
 
-          <section className="mt-8 max-w-2xl rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-panel sm:p-6">
-            {error && <p className="rounded-xl bg-[#fff0df] px-3.5 py-3 text-sm font-medium text-[#b46b22]">{error}</p>}
+          <section className="ui-panel mt-6 max-w-2xl">
+            {error && <p className="ui-alert border-red-200 bg-red-50 text-red-800" role="alert">{error}</p>}
             {!error && !user && <p className="text-sm text-slate-500">Loading current user…</p>}
             {user && (
               <dl className="grid gap-4 text-sm sm:grid-cols-2">

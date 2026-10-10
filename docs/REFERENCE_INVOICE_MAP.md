@@ -1,5 +1,25 @@
 # Approved reference invoice map
 
+## Authorized single-copy Purchase Orders (2026-10-08)
+
+The client requests one complete copy for **Domestic Purchase Orders and Reagent Purchase Orders only**. Both use the `Purchase Order` copy label. More than four products continue onto additional pages within that one copy, with calculations only on its final product page. Sales Invoices and Reagent Bills continue to generate Original, Duplicate, Triplicate and Extra copies. This supersedes previous four-copy Reagent PO extensions, not the original reference observations. Reagent PO version is `a4-reagent-purchase-order-v13`; Domestic PO remains `a4-purchase-order-v8`. Rendering layout and historical stored PDFs are unchanged.
+
+## Authorized numeric-only reagent Quantity (2026-10-08)
+
+The client's follow-up removes the unit/Per suffix from the item-table Quantity cells in **Reagent Bills and Reagent Purchase Orders only**. Print the numeric value through the existing Decimal formatter, with no KG/GM/ML/etc. Their subsequent follow-up makes the numeric value **bold without changing its font size**. Unit data, unit entry, Pack/Size, calculation, columns, alignment and four-product pagination remain unchanged. Sales and Domestic PO PDFs keep their previous quantity/unit display and regular weight. This supersedes earlier reagent Quantity-plus-unit amendments. New versions: Reagent Bill `a4-reagent-bill-v13`, Reagent PO `a4-reagent-purchase-order-v12`. Previously stored PDFs remain unchanged.
+
+## Authorized four-product pagination correction (2026-10-08)
+
+Visually inspected all eight pages of the client's `/Users/anujmishra/Downloads/purchase-orders-30.pdf`. Each of its four copies incorrectly placed eight reagent products on one sheet and bank/quantity/totals/terms/signature/footer on a separate product-free sheet. This is defect evidence, not the intended layout.
+
+The explicit correction applies to all four bill formats: maximum four products per physical A4 page, product five on a new complete page, fixed identity/parties/headings/bank/terms/signature/footer repeated without a separate closing sheet. Keep product serials and existing copy labels. Intermediate quantity and calculation cells and amount-in-words values are empty; only the final product page carries complete document totals. Normal eight-product copies contain 4/4 products; ten contain 4/4/2. This supersedes the earlier generated continuous-table/closing-sheet behavior below, not the original reference observations.
+
+The renderer uses actual Chromium geometry to keep complete product rows and fixed sections together, equalizes settlement depth across a document's pages, and may use fewer than four products for unusually tall rows. Oversized text that cannot fit even with a single product is rejected with actionable HTTP 422 rather than clipped, dropped or moved onto a closing-only page. Colors, columns, fonts, logo, financial values and historical stored PDFs remain unchanged. New template versions are Sales `a4-invoice-v10`, Domestic PO `a4-purchase-order-v8`, Reagent Bill `a4-reagent-bill-v11`, Reagent PO `a4-reagent-purchase-order-v10`.
+
+## Authorized seller-state header addition (2026-10-07)
+
+The client's later amendment adds **State Code:** and **State:** below the company's email lines on Sales Invoice, Reagent Bill, Domestic PO and Reagent PO PDFs. State is uppercase; `27` / `MAHARASHTRA` is an example, not hardcoded business data. Use the saved seller state code and invoice seller-state snapshot; a PO profile-name fallback is allowed only when its current code matches the saved PO code. Existing header styles, item table, financial calculations and pagination remain unchanged. This is an approved extension, not a claim that these rows were present in the original reference. New versions are Sales `a4-invoice-v9`, Domestic PO `a4-purchase-order-v7`, Reagent Bill `a4-reagent-bill-v10`, Reagent PO `a4-reagent-purchase-order-v9`.
+
 ## Verification status
 
 | Item | Status |
@@ -125,6 +145,8 @@ The production generator extends the observed structure for real invoice data:
 
 ## Layout acceptance checklist
 
+The source reference above remains the record of the original PDF. The client's explicit 2026-10-07 four-format layout update replaces top-header Pickup Address with up to two company emails, prefixes postal addresses with `Add:`, centers item values except Amount, adds accurate GST-rate labels, moves reagent Vehicle No. to the last Invoice Details row, and changes PO party headings to Seller / Seller / Shipping Address. Reagent tables omit Per, retain units with Quantity, widen Disc %, display its bold `@` discount amount, and enlarge/separate product/MFG text. Reagent PO's short body now matches the Reagent Bill 64 mm body. These approved deviations are implemented and documented in `docs/BILLING_CONTEXT.md`; they do not alter this source-inspection evidence or stored historical PDFs.
+
 - A4 portrait output with no clipped content, overlaps, or broken borders.
 - Seller, buyer, consignee, invoice identity, transport, item, tax, settlement, terms, signature, and footer sections appear in the documented order.
 - Exact ten-column table order and labels are preserved.
@@ -133,3 +155,13 @@ The production generator extends the observed structure for real invoice data:
 - Twenty-item and eighty-item invoices paginate with repeated identity/table headings and final-page totals/terms.
 - Long names, addresses, descriptions, and terms wrap safely.
 - Intrastate and interstate snapshots show the appropriate tax summary rows without inventing IRN/E-Way values.
+
+The client's subsequent 2026-10-07 alignment correction makes Item Description / Item Details values left-aligned across all four bill formats. Other item values retain centered alignment, Amount stays right-aligned, and the headings stay centered. This approved correction supersedes the all-values-centered instruction for the description cell only.
+
+The later PO-only party correction shows the same saved supplier identity in both Seller and Seller / Shipping Address panels, with bold headings/names and independent Contact (phone) and Email rows. Reagent PO transport metadata remains on the shipping side. This approved presentation mapping does not rewrite saved purchaser/consignee data or affect the Sales/Reagent Bill parties.
+
+The approved 2026-10-08 Sales-only correction separates each buyer/consignee phone and email into `Contact:` and `Email:` rows. Sales Vehicle No. and LR No. appear only in Invoice Details, not again in Consignee / Shipping Details. Other shipping fields and other formats are unchanged. New Sales generation uses `a4-invoice-v11`; stored PDFs and the original reference inspection above are preserved.
+
+The separately approved 2026-10-08 Domestic PO correction removes Delivery Note Date from new Domestic PO PDFs. A supplied Expected Delivery Date appears only in Invoice Details, after PO Date, not in Seller / Shipping Address. Omit the expected-date row when it is absent. The existing optional entry field and saved dates are preserved. Reagent PO/Sales/Reagent layouts and existing stored PDFs are unchanged; new Domestic PO generation uses `a4-purchase-order-v9`.
+
+The subsequent approved Domestic PO dispatch fix adds the missing entry textbox and saves its optional `transport_mode` value for creation/versioned editing. New PDFs display that snapshot in the existing Invoice Details **Dispatched through** row using `a4-purchase-order-v10`. This corrects data flow only; markup, styling, other formats and stored historical PDFs are unchanged.

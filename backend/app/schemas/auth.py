@@ -1,35 +1,54 @@
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
-
-from app.schemas.user import CurrentUserResponse, validate_password_strength
+from app.core.security import validate_passphrase
+from app.models.enums import UserRole
+from app.schemas.user import CurrentUserResponse, PassphraseIdentity
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=6, max_length=6)
-
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
-
-
-class RegistrationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     email: EmailStr
-    full_name: str = Field(min_length=1, max_length=255)
-    password: str = Field(min_length=6, max_length=6)
-    master_password: str = Field(min_length=1, max_length=512)
+    password: str = Field(min_length=1, max_length=256)
 
-    @field_validator("password")
+
+class SessionResponse(BaseModel):
+    user: CurrentUserResponse
+
+
+class PasswordChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(max_length=256)
+    _password = field_validator("new_password")(validate_passphrase)
+
+
+class InvitationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+    role: UserRole
+    branch_ids: list[int] = Field(default_factory=list)
+
+
+class InvitationAccept(PassphraseIdentity):
+    email: EmailStr | None = None
+    token: str = Field(min_length=32, max_length=256)
+
+
+class MFACode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=6, max_length=64)
+
+
+class MFAReauthentication(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current_password: str | None = Field(default=None, max_length=256)
+    code: str | None = Field(default=None, min_length=6, max_length=64)
+
+
+class MFAReset(MFAReauthentication):
+    reason: str = Field(min_length=1, max_length=1000)
+    @field_validator("reason")
     @classmethod
-    def password_is_strong(cls, password: str) -> str:
-        return validate_password_strength(password)
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str | None = None
-    token_type: Literal["bearer"] = "bearer"
-    user: CurrentUserResponse | None = None
+    def reason_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Reset reason is required")
+        return value.strip()

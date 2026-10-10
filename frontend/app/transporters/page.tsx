@@ -3,12 +3,13 @@ import { MasterDataPage } from "@/app/components/MasterDataPage";
 export default function TransportersPage() {
   return (
     <MasterDataPage
+      icon="transporters"
       title="Transporters"
-      description="Create and view transporter details for billing. The Seller/GST profile is used automatically."
+      description="Keep transport contacts, GST details and vehicle numbers ready for dispatch."
       endpoint="/transporters"
       fields={[
         { name: "branch_id", label: "Seller/GST profile", type: "number", required: true },
-        { name: "name", label: "Transporter name", required: true },
+        { name: "name", label: "Transporter name", type: "textarea", required: true },
         { name: "gstin", label: "GSTIN" },
         { name: "phone", label: "Phone" },
         { name: "vehicle_number", label: "Vehicle number" },

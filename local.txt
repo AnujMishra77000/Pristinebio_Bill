@@ -9,3 +9,7 @@ python -m alembic upgrade head
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 Frontend (Webapp Starter):
+
+admin id and password
+id: shubham@pb.in
+pass: Shubh@77

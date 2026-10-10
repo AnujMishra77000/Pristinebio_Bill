@@ -1,0 +1,20 @@
+FROM mcr.microsoft.com/playwright/python:v1.62.0-noble
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+RUN useradd --create-home --uid 10001 appuser
+COPY requirements.lock ./
+RUN pip install --no-cache-dir -r requirements.lock
+
+COPY --chown=appuser:appuser . .
+RUN mkdir -p /app/storage/invoices && chown -R appuser:appuser /app/storage
+
+USER appuser
+EXPOSE 8000
+
+# Migrations run once as a release step; application replicas only serve traffic.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-2}"]

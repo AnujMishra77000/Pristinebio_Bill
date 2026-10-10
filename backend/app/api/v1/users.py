@@ -1,139 +1,102 @@
 from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
 from app.api.dependencies import get_current_active_user, require_roles
-from app.core.security import hash_password
+from app.api.v1.auth import current_user_response, mfa_reauth, validate_assignments
 from app.db.session import get_db
-from app.models.company import Branch
 from app.models.enums import UserRole
 from app.models.user import User, UserBranchAssignment
-from app.schemas.user import UserCreate, UserRead, UserUpdate
-
+from app.schemas.user import UserRead, UserUpdate
+from app.schemas.auth import MFAReset
+from app.services.account_security import admin_lock, audit, lock_current_authority, locked_user, reset_mfa, revoke_user_sessions, throttle
 
 router = APIRouter()
+Db = Annotated[Session, Depends(get_db)]
+Admin = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
 
 
-def _user_read(db: Session, user: User) -> UserRead:
-    branch_ids = list(
-        db.scalars(
-            select(UserBranchAssignment.branch_id).where(
-                UserBranchAssignment.user_id == user.id
-            )
-        )
-    )
-    return UserRead(
-        id=user.id,
-        email=user.email,
-        full_name=user.full_name,
-        role=user.role,
-        branch_ids=branch_ids,
-        is_active=user.is_active,
-    )
-
-
-def _validate_branch_ids(db: Session, branch_ids: list[int]) -> None:
-    if len(set(branch_ids)) != len(branch_ids):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Branch IDs must be unique",
-        )
-    found_ids = set(db.scalars(select(Branch.id).where(Branch.id.in_(branch_ids))))
-    if found_ids != set(branch_ids):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="One or more branch IDs do not exist",
-        )
-
-
-def _replace_branch_assignments(db: Session, user: User, branch_ids: list[int]) -> None:
-    db.query(UserBranchAssignment).filter(
-        UserBranchAssignment.user_id == user.id
-    ).delete(synchronize_session=False)
-    db.add_all(
-        [UserBranchAssignment(user_id=user.id, branch_id=branch_id) for branch_id in branch_ids]
-    )
-
-
-@router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def create_user(
-    request: UserCreate,
-    db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
-) -> UserRead:
-    email = str(request.email).strip().lower()
-    if db.scalar(select(User.id).where(User.email == email)) is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
-    _validate_branch_ids(db, request.branch_ids)
-
-    user = User(
-        email=email,
-        full_name=request.full_name,
-        role=request.role,
-        hashed_password=hash_password(request.password),
-        is_active=request.is_active,
-    )
-    db.add(user)
-    db.flush()
-    _replace_branch_assignments(db, user, request.branch_ids)
-    db.commit()
-    db.refresh(user)
-    return _user_read(db, user)
+@router.post("", status_code=410)
+def removed_direct_provisioning(user: Admin):
+    raise HTTPException(410,"Create an invitation instead of assigning another person's password")
 
 
 @router.get("", response_model=list[UserRead])
-def list_users(
-    db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
-) -> list[UserRead]:
-    return [_user_read(db, user) for user in db.scalars(select(User).order_by(User.id))]
+def list_users(db: Db, user: Admin):
+    return [current_user_response(db,u) for u in db.scalars(select(User).order_by(User.id))]
 
 
 @router.get("/{user_id}", response_model=UserRead)
-def get_user(
-    user_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_active_user)],
-) -> UserRead:
-    user = db.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if current_user.role != UserRole.ADMIN and current_user.id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
-    return _user_read(db, user)
+def get_user(user_id:int, db:Db, current:Annotated[User,Depends(get_current_active_user)]):
+    user=db.get(User,user_id)
+    if not user:
+        raise HTTPException(404,"User not found")
+    if current.role!=UserRole.ADMIN and current.id!=user.id:
+        raise HTTPException(403,"Insufficient permissions")
+    return current_user_response(db,user)
 
 
 @router.patch("/{user_id}", response_model=UserRead)
-def update_user(
-    user_id: int,
-    request: UserUpdate,
-    db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
-) -> UserRead:
-    user = db.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    if request.email is not None:
-        email = str(request.email).strip().lower()
-        duplicate = db.scalar(select(User.id).where(User.email == email, User.id != user.id))
-        if duplicate is not None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
-        user.email = email
-    if request.full_name is not None:
-        user.full_name = request.full_name
-    if request.password is not None:
-        user.hashed_password = hash_password(request.password)
-    if request.role is not None:
-        user.role = request.role
-    if request.is_active is not None:
-        user.is_active = request.is_active
-    if request.branch_ids is not None:
-        _validate_branch_ids(db, request.branch_ids)
-        _replace_branch_assignments(db, user, request.branch_ids)
-
+def update_user(user_id:int, data:UserUpdate, db:Db, actor:Admin):
+    admin_lock(db)
+    user=db.get(User,user_id)
+    if not user:
+        raise HTTPException(404,"User not found")
+    user=locked_user(db,user)
+    before=current_user_response(db,user).model_dump(mode="json")
+    role=data.role if data.role is not None else user.role
+    active=data.is_active if data.is_active is not None else user.is_active
+    if user.role==UserRole.ADMIN and user.is_active and (role!=UserRole.ADMIN or not active):
+        others=list(db.scalars(select(User.id).where(User.role==UserRole.ADMIN,User.is_active.is_(True),User.id!=user.id).with_for_update()))
+        if not others:
+            raise HTTPException(409,"The last active administrator cannot be disabled or demoted")
+    ids=data.branch_ids if data.branch_ids is not None else before["branch_ids"]
+    if data.role is not None or data.branch_ids is not None:
+        validate_assignments(db,role,ids)
+    if data.email is not None:
+        email=str(data.email).lower()
+        if db.scalar(select(User.id).where(User.email==email,User.id!=user.id)):
+            raise HTTPException(409,"Email already exists")
+        user.email=email
+    if data.full_name is not None:
+        user.full_name=data.full_name
+    user.role,user.is_active=role,active
+    if data.branch_ids is not None:
+        db.query(UserBranchAssignment).filter(UserBranchAssignment.user_id==user.id).delete(synchronize_session=False)
+        db.add_all([UserBranchAssignment(user_id=user.id,branch_id=i) for i in ids])
+    db.flush()
+    after=current_user_response(db,user).model_dump(mode="json")
+    if before != after:
+        revoke_user_sessions(db,user.id)
+        audit(db,actor,"account_updated",entity_id=user.id,before=before,after=after)
     db.commit()
-    db.refresh(user)
-    return _user_read(db, user)
+    return current_user_response(db,user)
+
+
+@router.post("/{user_id}/revoke-sessions")
+def revoke_sessions(user_id:int,db:Db,actor:Admin):
+    if not db.get(User,user_id):
+        raise HTTPException(404,"User not found")
+    revoke_user_sessions(db,user_id)
+    audit(db,actor,"account_sessions_revoked",entity_id=user_id)
+    db.commit()
+    return {"detail":"User sessions revoked"}
+
+
+@router.post("/{user_id}/mfa-reset")
+def administrative_mfa_reset(user_id:int,data:MFAReset,request:Request,db:Db,actor:Admin):
+    actor=lock_current_authority(db,request,actor,admin=True)
+    throttle(db,request,str(actor.id),"mfa")
+    if user_id==actor.id:
+        raise HTTPException(403,"Use your recovery code for self-recovery; administrators cannot reset their own MFA")
+    user=db.get(User,user_id)
+    if not user:
+        raise HTTPException(404,"User not found")
+    admin_lock(db)
+    mfa_reauth(data,db,actor)
+    user=locked_user(db,user)
+    before={"mfa_enabled":user.mfa_enabled_at is not None}
+    reset_mfa(db,user)
+    audit(db,actor,"mfa_administrative_reset",entity_id=user.id,before=before,after={"mfa_enabled":False,"reason":data.reason})
+    db.commit()
+    return {"detail":"MFA reset; all sessions revoked and reenrollment required"}

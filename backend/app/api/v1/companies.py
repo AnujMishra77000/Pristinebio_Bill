@@ -10,6 +10,7 @@ from app.models.company import Branch, Company
 from app.models.enums import UserRole
 from app.models.user import User, UserBranchAssignment
 from app.schemas.company import CompanyCreate, CompanyRead, CompanyUpdate, SellerProfileRead, SellerProfileUpsert
+from app.services.account_security import audit, snapshot
 
 
 router = APIRouter()
@@ -18,7 +19,7 @@ router = APIRouter()
 def _profile_branch_for_user(db: Session, user: User) -> Branch | None:
     """Resolve the one seller profile a user may edit in single-company mode."""
     if user.role == UserRole.ADMIN:
-        return db.scalar(select(Branch).where(Branch.is_active.is_(True)).order_by(Branch.id))
+        return db.scalar(select(Branch).where(Branch.is_active.is_(True)).order_by(Branch.id).with_for_update().execution_options(populate_existing=True))
 
     assigned_branch_ids = {assignment.branch_id for assignment in user.branch_assignments}
     if not assigned_branch_ids:
@@ -64,12 +65,16 @@ def get_seller_profile(
 def upsert_seller_profile(
     request: SellerProfileUpsert,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
 ) -> SellerProfileRead:
     branch = _profile_branch_for_user(db, current_user)
     company = db.get(Company, branch.company_id) if branch else db.scalar(
         select(Company).where(Company.is_active.is_(True)).order_by(Company.id)
     )
+    if company is not None:
+        company=db.scalar(select(Company).where(Company.id==company.id).with_for_update().execution_options(populate_existing=True))
+
+    before = {"company":snapshot(company) if company else None,"seller_profile":snapshot(branch) if branch else None}
 
     if branch is not None:
         _ensure_profile_gstin_is_unique(db, request.gstin, branch.id)
@@ -104,6 +109,7 @@ def upsert_seller_profile(
             postal_code=request.postal_code,
             phone=request.phone,
             email=request.email,
+            secondary_email=request.secondary_email,
             bank_name=request.bank_name,
             bank_branch_name=request.bank_branch_name,
             bank_account_name=request.bank_account_name,
@@ -127,6 +133,8 @@ def upsert_seller_profile(
         branch.postal_code = request.postal_code
         branch.phone = request.phone
         branch.email = request.email
+        if "secondary_email" in request.model_fields_set:
+            branch.secondary_email = request.secondary_email
         branch.bank_name = request.bank_name
         branch.bank_branch_name = request.bank_branch_name
         branch.bank_account_name = request.bank_account_name
@@ -135,6 +143,8 @@ def upsert_seller_profile(
         branch.terms_body = request.terms_body
         branch.is_active = request.is_active
 
+    db.flush()
+    audit(db,current_user,"seller_profile_updated","seller_profile",branch.id,before=before,after={"company":snapshot(company),"seller_profile":snapshot(branch)})
     db.commit()
     db.refresh(company)
     db.refresh(branch)
@@ -165,10 +175,12 @@ def _ensure_company_access(db: Session, user: User, company_id: int) -> Company:
 def create_company(
     request: CompanyCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
 ) -> Company:
     company = Company(**request.model_dump())
     db.add(company)
+    db.flush()
+    audit(db,actor,"company_created","company",company.id,after=snapshot(company))
     db.commit()
     db.refresh(company)
     return company
@@ -204,13 +216,16 @@ def update_company(
     company_id: int,
     request: CompanyUpdate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    actor: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
 ) -> Company:
-    company = db.get(Company, company_id)
+    company = db.scalar(select(Company).where(Company.id==company_id).with_for_update().execution_options(populate_existing=True))
     if company is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+    before=snapshot(company)
     for field, value in request.model_dump(exclude_unset=True).items():
         setattr(company, field, value)
+    db.flush()
+    audit(db,actor,"company_updated","company",company.id,before=before,after=snapshot(company))
     db.commit()
     db.refresh(company)
     return company
