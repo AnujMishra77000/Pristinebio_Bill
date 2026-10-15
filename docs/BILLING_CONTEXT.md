@@ -77,7 +77,17 @@ The client's 2026-09-16 request sets newly created or changed account passwords 
 - Keep invoice approval state and audit-relevant transitions explicit and testable.
 - Keep all API routes under `/api/v1`.
 
-### Edit saved draft bills (approved 2026-10-09)
+### Confirmed-bill corrections (approved 2026-10-15)
+
+All four bill registers also offer **Edit** for eligible confirmed Sales/Reagent invoices and approved Domestic/Reagent POs. This explicitly supersedes the earlier draft-only boundary for the controlled correction flow, not for ordinary PATCH routes. Keep closed/cancelled documents read-only. Open the same form with `correction=1`, showing the exact transaction snapshots and an immutable existing document number. Normal saved-draft edits remain unchanged.
+
+Use forward migration `20261015_0025` to add a unique working correction per original invoice/PO. Correction saves use mandatory reasons and optimistic versions, complete Decimal-string snapshots, and the existing backend validators/calculators. The original confirmed financial row and its PDF remain unchanged while corrections are saved, previewed, submitted or returned. Do not refresh unchanged parties, supplier tax state, seller identity, bank defaults or other reviewed snapshot values from newer masters. Do not renumber, move a confirmed invoice to another financial year, add external identifiers, or create another live bill to edit it.
+
+Staff can prepare and submit corrections; Manager/Admin reviews the exact staged revision/PDF and confirms it. Managers cannot approve corrections they created or submitted; Admin self-approval remains authorized. A reviewer may return a submitted correction with a reason. Approval publishes the reviewed data atomically to the same ID/number, archives the full prior confirmed snapshot and PDF metadata, clears the current PDF reference, and uses the unchanged existing generator for a newly confirmed PDF. Never serve old PDF bytes as the corrected revision. Every save/transition is attributable; long reasons remain intact in detailed audit records even though invoice transition-note summaries are bounded to 255 characters.
+
+Lock the original bill before its correction row for writes. Payment allocation history, integration jobs or stored external GST references block this direct correction route, including when such links appear after editing starts. An approved accounting/external correction policy is required before lifting those guards. Original-version conflicts cannot overwrite a newer confirmed bill. Manager/Admin may explicitly restart a stale correction with both versions and a reason; archive the abandoned working edits and reload the latest original snapshots. Saved correction reasons reload from the backend; unsaved form/reason data stays in the existing same-tab memory, not browser storage. Preserve current navigation/retry/session safeguards and all PDF implementation/layout files.
+
+### Edit saved draft bills (approved 2026-10-09; confirmed correction extension above)
 
 All four registers offer **Edit** for saved drafts: Sales → `/invoices?invoice={id}`, Reagent → `/reagent-bills?invoice={id}`, Purchase → `/purchase-orders?order={id}`, Reagent Purchase → `/reagent-purchase-orders?order={id}`. The PDF view also links to the editable draft. Keep existing PO amendment-pending editing; never expose direct financial editing for submitted, approved, PDF-generated, closed or cancelled records. Server-side profile authorization, optimistic versions and workflow restrictions remain authoritative.
 

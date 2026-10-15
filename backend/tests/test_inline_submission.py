@@ -109,7 +109,7 @@ def test_pdf_preview_returns_inline_bytes_from_saved_snapshot_without_any_billin
     assert response.headers["content-disposition"].startswith("inline;")
     expected_version = {"sales": TEMPLATE_VERSION, "reagent_bill": REAGENT_BILL_TEMPLATE_VERSION, "domestic_oils": PURCHASE_ORDER_TEMPLATE_VERSION, "reagent_po": REAGENT_PURCHASE_ORDER_TEMPLATE_VERSION}[document_type]
     assert contexts[0].template_version == expected_version
-    assert contexts[0].copy_labels == (("Purchase Order",) if document_type == "domestic_oils" else COPY_LABELS)
+    assert contexts[0].copy_labels == (("Purchase Order",) if model is PurchaseOrder else COPY_LABELS)
     assert _state(db_session) == before
     assert list(tmp_path.iterdir()) == []
     # Preview does not make a final PDF downloadable.
@@ -166,8 +166,10 @@ def test_pdf_preview_real_renderer_returns_valid_a4_pdf_without_storage(
     assert "(A4)" in metadata["Page size"]
     page_count = int(metadata["Pages"].strip())
     assert page_count >= 1
-    if document_type != "domestic_oils":
+    if document_type in {"sales", "reagent_bill"}:
         assert page_count % 4 == 0
+    else:
+        assert page_count == 1
     assert _state(db_session) == before
     assert list(tmp_path.iterdir()) == []
 

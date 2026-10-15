@@ -19,6 +19,19 @@ export interface BankAccount { id: number; branch_id: number; bank_name: string;
 export interface Transporter { id: number; branch_id: number; name: string; gstin: string | null; phone: string | null; vehicle_number: string | null; is_active: boolean; }
 export interface TermsAndConditions { id: number; branch_id: number; title: string; body: string; is_default: boolean; is_active: boolean; }
 export type InvoiceStatus = "draft" | "pending_approval" | "approved" | "pdf_generated";
+export interface BillCorrection { base_version: number; reason: string; status: "draft" | "pending_approval"; previous_final_total: string; }
+export interface PendingBillCorrection {
+  collection: "invoices" | "purchase-orders";
+  document_id: number;
+  document_type: "sales" | "reagent" | "domestic_oils";
+  document_number: string;
+  version: number;
+  reason: string;
+  previous_final_total: string;
+  final_total: string;
+  created_by_id: number;
+  submitted_by_id: number;
+}
 export interface InvoiceLine {
   id: number;
   product_id: number;
@@ -60,6 +73,9 @@ export interface InvoiceTotals {
 }
 export interface InvoicePreview extends InvoiceTotals { lines: InvoicePreviewLine[]; }
 export interface Invoice extends InvoiceTotals {
+  correction?: BillCorrection | null;
+  created_by_id: number;
+  submitted_by_id: number | null;
   id: number;
   document_type: "sales" | "reagent";
   branch_id: number;
@@ -131,6 +147,7 @@ export interface Invoice extends InvoiceTotals {
 }
 export type PurchaseOrderLine = InvoiceLine;
 export interface PurchaseOrder extends InvoiceTotals {
+  correction?: BillCorrection | null;
   id: number;
   document_type: "domestic_oils" | "reagent";
   place_of_supply_state_code: string | null;

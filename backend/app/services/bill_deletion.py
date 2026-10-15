@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import ensure_branch_access
 from app.core.config import get_settings
 from app.models.authentication import SecurityAudit
+from app.models.bill_correction import BillCorrection
 from app.models.enums import UserRole
 from app.models.integration import OutboundIntegrationJob
 from app.models.invoice import Invoice, InvoiceCreationRequest, InvoiceRevision
@@ -118,6 +119,8 @@ def delete_bill(db: Session, user: User, entity: Literal["invoice", "purchase_or
     link = creation_model.invoice_id if entity == "invoice" else creation_model.purchase_order_id
     try:
         db.execute(update(creation_model).where(link == bill.id).values({link.key: None, "deleted_at": deleted_at}))
+        correction_link = BillCorrection.invoice_id if entity == "invoice" else BillCorrection.purchase_order_id
+        db.execute(delete(BillCorrection).where(correction_link == bill.id))
         db.delete(bill)
         db.commit()
     except IntegrityError as exc:

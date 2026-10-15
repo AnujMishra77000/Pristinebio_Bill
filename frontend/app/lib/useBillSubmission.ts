@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, apiRequest, createIdempotencyKey, downloadFile, fetchFileBlob, getStoredSession } from "./api";
 import { useInvoiceEntryRef, useInvoiceEntryValue, type InvoiceEntrySession } from "./invoiceEntrySession";
+import type { BillCorrection } from "./types";
 
 type BillDocument = {
   id: number;
@@ -13,6 +14,7 @@ type BillDocument = {
   submitted_by_id?: number | null;
   submitted_revision?: number | null;
   approved_revision?: number | null;
+  correction?: BillCorrection | null;
 };
 type Options<T> = {
   collection: "/invoices" | "/purchase-orders";
@@ -21,6 +23,7 @@ type Options<T> = {
   validate: () => string | null;
   onFailure?: (failure: unknown) => void;
   onCreated?: (document: T) => Promise<void>;
+  onReturned?: () => void;
   entrySession?: InvoiceEntrySession;
   onStartNew?: () => void;
 };
@@ -35,12 +38,14 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
   const [review, setReview] = useState<{ url: string; signature: string; version: number; final: boolean } | null>(null);
   const [error, setError] = useInvoiceEntryValue(entry, "submission.error", "");
   const [message, setMessage] = useInvoiceEntryValue(entry, "submission.message", "");
+  const [correctionReason, updateCorrectionReason] = useInvoiceEntryValue(entry, "submission.correctionReason", "");
+  const reasonRef = useInvoiceEntryRef(entry, "submission.correctionReason", "");
   const [savedSignature, setSavedSignature] = useInvoiceEntryValue(entry, "submission.savedSignature", "");
   const savedSignatureRef = useInvoiceEntryRef(entry, "submission.savedSignature", "");
   const documentRef = useInvoiceEntryRef<T | null>(entry, "submission.document", null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const signature = JSON.stringify(options.payload);
+  const signature = JSON.stringify(document?.correction ? { ...options.payload, correction_reason: correctionReason.trim() } : options.payload);
   const signatureRef = useRef(signature);
   signatureRef.current = signature;
   const intent = useInvoiceEntryRef<{ signature: string; key: string; uncertain?: boolean } | null>(entry, "submission.intent", null);
@@ -63,7 +68,19 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
     loadedUrl.current = null; setFrameReady(false);
     setReview(null);
   }
-  function remember(next: T) { documentRef.current = next; setDocument(next); }
+  function remember(next: T) {
+    if (documentRef.current?.correction && !next.correction && approved(next) && typeof window !== "undefined" && window.location) {
+      const query = new URLSearchParams(window.location.search);
+      query.delete("correction");
+      window.history.replaceState(null, "", `${window.location.pathname}${query.size ? `?${query}` : ""}`);
+    }
+    documentRef.current = next; setDocument(next);
+  }
+  function setCorrectionReason(reason: string) {
+    const current = documentRef.current;
+    if (!current?.correction || !editable(current) || busyRef.current) return;
+    reasonRef.current = reason; updateCorrectionReason(reason);
+  }
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; if (objectUrl.current) URL.revokeObjectURL(objectUrl.current); };
@@ -76,6 +93,8 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
   }, [signature, restoreEpoch]);
 
   function restore(next: T) {
+    const reason = next.correction?.reason ?? "";
+    reasonRef.current = reason; updateCorrectionReason(reason);
     clearReview(); remember(next); entry?.write("submission.completed", false); baselineNext.current = true; setRestoreEpoch((value) => value + 1); setError("");
   }
   function reset() {
@@ -83,8 +102,10 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
     if (typeof window !== "undefined" && window.location) {
       const query = new URLSearchParams(window.location.search);
       query.delete(optionsRef.current.collection === "/invoices" ? "invoice" : "order");
+      query.delete("correction");
       window.history.replaceState(null, "", `${window.location.pathname}${query.size ? `?${query}` : ""}`);
     }
+    reasonRef.current = ""; updateCorrectionReason("");
     clearReview(); documentRef.current = null; setDocument(null); setSavedSignature("");
     savedSignatureRef.current = "";
     intent.current = null; setError(""); setMessage("");
@@ -106,6 +127,7 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
     let current = documentRef.current;
     const body = signatureRef.current;
     if (current && !editable(current)) return current;
+    if (current?.correction && !reasonRef.current.trim()) throw new Error("Enter a correction reason before saving or previewing this correction.");
     const validation = optionsRef.current.validate();
     if (validation) throw new Error(validation);
     if (!current && intent.current?.uncertain && intent.current.signature !== body) {
@@ -116,18 +138,22 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
       ensureActive();
       remember(current); savedSignatureRef.current = original.signature; setSavedSignature(original.signature); intent.current = null;
     }
-    if (current && body === savedSignatureRef.current) return current;
+    if (current && body === savedSignatureRef.current && (!current.correction || current.correction.reason === reasonRef.current.trim())) return current;
     const payload = JSON.parse(body) as Record<string, unknown>;
     let result: T;
     if (current) {
       let update: object;
-      if (optionsRef.current.updateField) update = { expected_version: current.version, [optionsRef.current.updateField]: payload };
+      const { correction_reason: _reason, ...normalPayload } = payload;
+      void _reason;
+      if (current.correction && optionsRef.current.collection === "/invoices") delete normalPayload.invoice_number_suffix;
+      if (optionsRef.current.updateField) update = { expected_version: current.version, [optionsRef.current.updateField]: normalPayload };
       else {
-        const { document_type: _documentType, ...fields } = payload;
+        const { document_type: _documentType, ...fields } = normalPayload;
         void _documentType;
         update = { ...fields, expected_version: current.version, ...(fields.buyer && fields.buyer_customer_id == null ? { buyer_customer_id: null } : {}), consignee_customer_id: null, consignee: fields.consignee ?? null };
       }
-      result = await apiRequest<T>(`${optionsRef.current.collection}/${current.id}`, { method: "PATCH", body: JSON.stringify(update) });
+      if (current.correction) update = { ...update, correction_reason: reasonRef.current.trim() };
+      result = await apiRequest<T>(`${optionsRef.current.collection}/${current.id}${current.correction ? "/correction" : ""}`, { method: "PATCH", body: JSON.stringify(update) });
     } else {
       if (intent.current?.signature !== body) intent.current = { signature: body, key: createIdempotencyKey() };
       try {
@@ -149,7 +175,7 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
     ensureActive();
     if (!mounted.current) return;
     const body = savedSignatureRef.current;
-    const path = `${optionsRef.current.collection}/${next.id}`;
+    const path = `${optionsRef.current.collection}/${next.id}${!final && next.correction ? "/correction" : ""}`;
     const blob = await fetchFileBlob(`${path}/${final ? "pdf" : "preview-pdf"}`, final ? {} : { method: "POST", body: JSON.stringify({ expected_version: next.version }) });
     if (!mounted.current || !active()) return;
     if (!final && signatureRef.current !== body) {
@@ -196,7 +222,7 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
   }
   async function transition(previous: T, operation: "submit" | "approve"): Promise<T> {
     ensureActive();
-    const path = `${optionsRef.current.collection}/${previous.id}`;
+    const path = `${optionsRef.current.collection}/${previous.id}${previous.correction ? "/correction" : ""}`;
     try {
       const next = await apiRequest<T>(`${path}/${operation}`, { method: "POST", body: JSON.stringify({ expected_version: previous.version }) });
       ensureActive(); return next;
@@ -218,6 +244,7 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
     await run(async () => {
       let next = documentRef.current;
       if (!next) throw new Error("Preview the bill before confirming it.");
+      if (next.correction && (!review || review.version !== next.version || review.signature !== signatureRef.current)) throw new Error("Preview the correction PDF before confirming this revision.");
       if (editable(next)) {
         if (!review || review.version !== next.version || review.signature !== signatureRef.current) throw new Error("Preview your latest changes before confirming this revision.");
         next = await transition(next, "submit");
@@ -238,12 +265,27 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
     await run(async () => {
       const previous = documentRef.current;
       if (!previous) return;
-      const latest = await apiRequest<T>(`${optionsRef.current.collection}/${previous.id}`);
+      const latest = await apiRequest<T>(`${optionsRef.current.collection}/${previous.id}${previous.correction ? "/correction" : ""}`);
       ensureActive();
       if (editable(latest)) throw new Error("The bill was returned or changed. Open its latest revision in the Approval workspace before editing; your entered fields remain here.");
       if (!approved(latest) && latest.status !== "pending_approval") throw new Error(`This bill is ${latest.status.replaceAll("_", " ")}. Review its details in the Approval workspace.`);
+      if (latest.correction && latest.version !== previous.version) { clearReview(); throw new Error("The submitted correction revision changed. Reload the latest revision and review its PDF; your fields are retained."); }
       remember(latest); await finish(latest);
     });
+  }
+  const reviewer = () => ["admin", "manager"].includes(getStoredSession()?.user.role ?? "");
+  const canReturnCorrection = Boolean(document?.correction && document.status === "pending_approval" && reviewer());
+  async function returnCorrection(reason: string) {
+    let returned = false;
+    await run(async () => {
+      const previous = documentRef.current;
+      if (!reviewer() || !previous?.correction || previous.status !== "pending_approval") throw new Error("Only Manager/Admin can return a pending correction.");
+      if (!reason.trim()) throw new Error("Enter a reviewer reason before returning this correction.");
+      const next = await apiRequest<T>(`${optionsRef.current.collection}/${previous.id}/correction/return`, { method: "POST", body: JSON.stringify({ expected_version: previous.version, reason: reason.trim() }) });
+      ensureActive(); restore(next); returned = true;
+      setMessage("Correction returned to draft. Review the requested changes before resubmitting.");
+    });
+    if (returned && active() && mounted.current) optionsRef.current.onReturned?.();
   }
   async function amend(reason: string, hydrate?: (next: T) => void) {
     await run(async () => {
@@ -288,13 +330,15 @@ export function useBillSubmission<T extends BillDocument>(options: Options<T>) {
     if (printQueued.current === url) { printQueued.current = null; printFrame(); }
   }
   function edit() { clearReview(); setError(""); setMessage("Editing the same draft. Preview your changes again before confirming."); }
-  const unsaved = !document || signature !== savedSignature;
+  const unsaved = !document || signature !== savedSignature || Boolean(document.correction && editable(document) && (!document.correction.reason.trim() || document.correction.reason !== correctionReason.trim()));
   const locked = busy || Boolean(review && !review.final) || Boolean(document && !editable(document));
-  const canConfirm = Boolean(document && (editable(document) ? review && review.version === document.version && review.signature === signature : document.status === "pending_approval" || approved(document)));
+  const reviewed = Boolean(review && review.version === document?.version && review.signature === signature);
+  const canConfirm = Boolean(document && (!document.correction || reviewed) && (editable(document) ? reviewed : document.status === "pending_approval" || approved(document)));
   const startNew = options.onStartNew ? () => {
     if (busyRef.current) return;
     if (unsaved && !window.confirm("Discard this entry and start a new bill? Saved server drafts will not be deleted.")) return;
+    reset();
     options.onStartNew?.();
   } : undefined;
-  return { document, busy, review, error, message, unsaved, locked, finalReady, canConfirm, canEdit: Boolean(document && editable(document)), save, preview, confirm, edit, download, print, checkApproval, restore, reset, frameRef, frameLoaded, frameReady, amend, startNew };
+  return { document, busy, review, error, message, unsaved, locked, finalReady, canConfirm, canEdit: Boolean(document && editable(document)), correctionReason, setCorrectionReason, canReturnCorrection, returnCorrection, save, preview, confirm, edit, download, print, checkApproval, restore, reset, frameRef, frameLoaded, frameReady, amend, startNew };
 }

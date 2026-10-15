@@ -20,9 +20,10 @@ export type RegisteredBill = Invoice | PurchaseOrder;
 export function billEditHref(kind: BillRegisterKind, bill: RegisteredBill): string | null {
   const config = billRegisters[kind];
   if (bill.document_type !== config.documentType || !Number.isSafeInteger(bill.id) || bill.id <= 0 || !Number.isSafeInteger(bill.version) || bill.version <= 0) return null;
-  if (bill.status !== "draft" && !(config.collection === "purchase-orders" && bill.status === "amendment_pending")) return null;
+  const correction = bill.status === "approved" || (config.collection === "invoices" && bill.status === "pdf_generated");
+  if (!correction && bill.status !== "draft" && !(config.collection === "purchase-orders" && bill.status === "amendment_pending")) return null;
   const entry = { sales: "/invoices", reagent: "/reagent-bills", purchase: "/purchase-orders", "reagent-purchase": "/reagent-purchase-orders" }[kind];
-  return `${entry}?${config.collection === "invoices" ? "invoice" : "order"}=${bill.id}`;
+  return `${entry}?${config.collection === "invoices" ? "invoice" : "order"}=${bill.id}${correction ? "&correction=1" : ""}`;
 }
 export const billNumber = (bill: RegisteredBill) => "invoice_number" in bill ? bill.invoice_number ?? `Draft #${bill.id}` : bill.purchase_order_number;
 export const billDate = (bill: RegisteredBill) => "invoice_date" in bill ? bill.invoice_date : bill.order_date;

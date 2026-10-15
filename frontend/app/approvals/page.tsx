@@ -5,15 +5,21 @@ import { useEffect, useState } from "react";
 
 import { AppShell } from "@/app/components/AppShell";
 import { AppIcon } from "@/app/components/AppIcon";
-import { AuthGateStatus, useAuthStatus } from "@/app/components/AuthGate";
+import { AuthGateStatus, useAuthStatus, useSessionState } from "@/app/components/AuthGate";
 import { PageHeader } from "@/app/components/PageHeader";
+import { CorrectionQueue } from "@/app/components/CorrectionQueue";
 import { ApiError, apiRequest } from "@/app/lib/api";
-import type { Invoice, PurchaseOrder } from "@/app/lib/types";
+import type { Invoice, PendingBillCorrection, PurchaseOrder, RegisterPage } from "@/app/lib/types";
 
 type DocumentType = "invoice" | "purchase-order";
 
 export default function ApprovalsPage() {
   const authStatus = useAuthStatus();
+  const { session } = useSessionState();
+  const canReviewCorrections = session?.user.role === "admin" || session?.user.role === "manager";
+  const [corrections, setCorrections] = useState<RegisterPage<PendingBillCorrection>>({ items: [], total: 0, page: 1, page_size: 50 });
+  const [correctionError, setCorrectionError] = useState("");
+  const [correctionBusy, setCorrectionBusy] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +40,14 @@ export default function ApprovalsPage() {
   }
 
   useEffect(() => { if (authStatus === "authenticated") void load(); }, [authStatus]);
+
+  async function loadCorrections(page = 1) {
+    setCorrectionBusy(true); setCorrectionError("");
+    try { setCorrections(await apiRequest<RegisterPage<PendingBillCorrection>>(`/bill-corrections/pending?page=${page}&page_size=50`, { cache: "no-store" })); }
+    catch (failure) { setCorrectionError(failure instanceof Error ? failure.message : "Unable to load pending corrections. Retry to refresh the queue."); }
+    finally { setCorrectionBusy(false); }
+  }
+  useEffect(() => { if (authStatus === "authenticated" && canReviewCorrections) void loadCorrections(); }, [authStatus, canReviewCorrections]);
 
   async function approve(type: DocumentType, documentId: number, version: number) {
     setBusy(documentId); setError(null);
@@ -62,6 +76,13 @@ export default function ApprovalsPage() {
   return <AuthGateStatus status={authStatus}><AppShell><main className="workspace-page">
     <PageHeader icon="approvals" eyebrow="Controlled decisions" title="Approval workspace" description="Review the exact submitted revision before approving. Staff and Manager submissions require independent approval; Admins may approve their own documents." action={<span className="ui-badge"><AppIcon name="security" size={15} />Admin self-approval enabled</span>} />
     {error && <p className="ui-alert mt-6 border-red-200 bg-red-50 text-red-800" role="alert">{error}</p>}
+    {canReviewCorrections && <section className="mt-6"><CorrectionQueue items={corrections.items} total={corrections.total} />
+      {correctionError && <p className="ui-alert mt-3 border-red-200 bg-red-50 text-red-800" role="alert">{correctionError}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-3"><button className="ui-button" type="button" disabled={correctionBusy} onClick={() => void loadCorrections(corrections.page)}>{correctionBusy ? "Loading corrections…" : "Refresh corrections"}</button>
+        <button className="ui-button" type="button" disabled={correctionBusy || corrections.page <= 1} onClick={() => void loadCorrections(corrections.page - 1)}>Previous corrections</button>
+        <span className="text-xs text-slate">Page {corrections.page}</span>
+        <button className="ui-button" type="button" disabled={correctionBusy || corrections.page * corrections.page_size >= corrections.total} onClick={() => void loadCorrections(corrections.page + 1)}>Next corrections</button></div>
+    </section>}
     <section className="mt-6 grid gap-6 xl:grid-cols-2"><Queue title="Sales invoices" empty="No invoice approvals are waiting." items={invoices} type="invoice" busy={busy} onApprove={approve} onReturn={returnInvoice} /><Queue title="Purchase orders" empty="No purchase-order approvals are waiting." items={purchaseOrders} type="purchase-order" busy={busy} onApprove={approve} /></section>
   </main></AppShell></AuthGateStatus>;
 }

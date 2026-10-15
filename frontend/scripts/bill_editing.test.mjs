@@ -36,8 +36,13 @@ test('each draft has an Edit link to its existing bill in the correct entry form
     assert.match(html, />Edit<\/a>/);
   }
 });
-test('confirmed or submitted records cannot offer direct financial editing', () => {
-  for (const [kind, type] of cases) for (const status of ['pending_approval', 'approved', 'pdf_generated', 'closed', 'cancelled']) {
+test('confirmed bills open a staged correction in their matching form', () => {
+  for (const [kind, type, href] of cases) for (const status of kind === 'sales' || kind === 'reagent' ? ['approved', 'pdf_generated'] : ['approved']) {
+    assert.ok(render(kind, bill(kind, type, status)).includes(`href="${href}&amp;correction=1"`));
+  }
+});
+test('submitted, closed and cancelled records cannot offer editing', () => {
+  for (const [kind, type] of cases) for (const status of ['pending_approval', 'closed', 'cancelled', ...(['purchase', 'reagent-purchase'].includes(kind) ? ['pdf_generated'] : [])]) {
     assert.doesNotMatch(render(kind, bill(kind, type, status), true), />Edit<\/a>/);
   }
 });
@@ -45,4 +50,20 @@ test('existing purchase-order amendments remain editable but invalid versions/ty
   for (const kind of ['purchase', 'reagent-purchase']) assert.match(render(kind, bill(kind, registers.billRegisters[kind].documentType, 'amendment_pending')), />Edit<\/a>/);
   assert.doesNotMatch(render('sales', { ...bill('sales', 'sales'), version: 0 }), />Edit<\/a>/);
   assert.doesNotMatch(render('purchase', bill('purchase', 'reagent')), />Edit<\/a>/);
+});
+
+test('the loaded PDF viewer distinguishes draft editing from confirmed corrections', async () => {
+  for (const [status, label] of [['draft', 'Edit this draft'], ['amendment_pending', 'Edit this draft'], ['approved', 'Edit confirmed bill'], ['pdf_generated', 'Edit confirmed bill']]) {
+    let stateIndex = 0;
+    const kind = status === 'amendment_pending' ? 'purchase' : 'sales';
+    const loaded = { ...bill(kind, kind === 'purchase' ? 'domestic_oils' : 'sales', status), invoice_date: '2026-10-15', order_date: '2026-10-15', buyer_name: 'Snapshot buyer', final_total: '118.00' };
+    const { BillPdfView } = await compile('../app/components/BillRegisterPage.tsx', {
+      react: { Fragment: Symbol.for('react.fragment'), useState: initial => [stateIndex++ === 0 ? loaded : initial, () => {}], useRef: () => ({ current: null }), useEffect() {} },
+      './AppShell': {}, './AuthGate': {}, './AppIcon': { AppIcon: () => null }, './PageHeader': {},
+      '@/app/lib/api': {}, '@/app/lib/invoiceEntrySession': {}, '@/app/lib/billRegisters': registers,
+    });
+    assert.equal(typeof BillPdfView, 'function');
+    const html = renderToStaticMarkup(createElement(BillPdfView, { kind, id: 101, onClose() {} }));
+    assert.ok(html.includes(`>${label}</a>`), `${status} must use ${label}`);
+  }
 });

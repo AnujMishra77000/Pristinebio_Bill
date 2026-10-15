@@ -82,6 +82,35 @@ Run migrations exactly once per release before starting replicas. The backend im
 
 ## Test And Verification Commands
 
+### Edit a confirmed bill
+
+Apply the forward correction migration once before serving the updated backend:
+
+```bash
+cd backend
+./.venv/bin/python -m alembic upgrade head
+```
+
+Restart the backend and refresh/rebuild the frontend. In **Your bill registers**, open Sales, Purchase, Reagent or Reagent Purchase, then choose **Edit** beside a confirmed bill. The matching form loads its saved transaction values, including the existing number, parties, addresses and items; loading errors block saving rather than opening a blank creation form. Enter a correction reason, save/preview the correction, and **Confirm**. Staff submits to the existing Manager/Admin approval workflow; reviewers open **Approval workspace → Bill corrections → Review correction**, preview the exact revision, then confirm or return it with a reason. Admin can confirm their own corrections.
+
+The bill keeps its ID and number. The original confirmed values/PDF remain available until approval; the previous snapshot and PDF metadata are archived, and the corrected final PDF is generated through the same layout engine. Closed/cancelled records and bills with payment allocation or external-integration/GST references are not directly editable. On concurrent changes, reload explicitly; Manager/Admin can restart a stale correction against the current bill with a reason, preserving abandoned edits in the audit. Do not reset the database or apply migrations independently from every application replica.
+
+Focused correction verification:
+
+```bash
+cd backend
+./.venv/bin/python -m pytest tests/test_confirmed_bill_corrections.py tests/test_bill_correction_migration.py tests/test_postgresql_bill_corrections.py -q
+cd ../frontend
+node --test scripts/bill_corrections.test.mjs scripts/bill_editing.test.mjs
+FRONTEND_BASE_URL=http://127.0.0.1:3000 ../backend/.venv/bin/python scripts/verify_bill_corrections_ui.py
+cd ../backend
+FRONTEND_INTEGRATION_URL=http://127.0.0.1:3000 ./.venv/bin/python -m pytest tests/test_confirmed_correction_browser.py -q
+```
+
+Start the local frontend on port 3000 before browser checks. The frontend script uses intercepted API fixtures. The optional `FRONTEND_INTEGRATION_URL` test forwards browser API requests to the real FastAPI application with isolated in-memory test data, verifying register→Edit prefill, Staff submission and independent Manager confirmation for all four types. Both use fixture PDF bytes for browser controls, not client billing records or a new layout validation. The optional PostgreSQL race tests require the disposable `billing_security_test` database described below; SQLite tests alone do not establish PostgreSQL concurrency guarantees. No live migration or deployment is performed by these instructions.
+
+### Other verification commands
+
 Phase-relevant checks (run from repository root unless `cd` is shown):
 
 Backend full suite:

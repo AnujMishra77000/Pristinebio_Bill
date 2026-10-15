@@ -101,7 +101,7 @@ export function BillDeleteDialog({ kind, bill, canDelete, onCancel, onDeletionPe
   </dialog>;
 }
 
-function BillPdfView({ kind, id, onClose }: { kind: BillRegisterKind; id: number; onClose: () => void }) {
+export function BillPdfView({ kind, id, onClose }: { kind: BillRegisterKind; id: number; onClose: () => void }) {
   const config = billRegisters[kind];
   const [bill, setBill] = useState<RegisteredBill | null>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -134,7 +134,7 @@ function BillPdfView({ kind, id, onClose }: { kind: BillRegisterKind; id: number
 
   return <section aria-label="Bill PDF view" className="ui-panel mt-5">
     <div className="ui-section-heading"><div className="min-w-0"><h2 ref={heading} tabIndex={-1} className="ui-section-title break-words">{bill ? billNumber(bill) : "Bill PDF view"}</h2>{bill && <p className="mt-2 text-xs text-slate">{displayBillDate(billDate(bill))} · {billParty(bill)} · <span className="capitalize">{statusLabel(bill.status)}</span> · ₹ {bill.final_total}</p>}</div><button className="ui-button" type="button" onClick={onClose}><AppIcon name="close" size={16} />Close view</button></div>
-    {bill && <div className="mb-4"><span className="ui-badge">{stored ? "Saved PDF" : bill.status === "draft" || bill.status === "amendment_pending" ? "Draft preview" : "Unstored preview"}</span>{billEditHref(kind, bill) && <Link className="ui-button ml-3" href={billEditHref(kind, bill)!}>Edit this draft</Link>}{!stored && <p className="mt-2 text-xs text-slate">Read-only preview of the current revision. Viewing does not approve, finalize or alter this bill.</p>}</div>}
+    {bill && <div className="mb-4"><span className="ui-badge">{stored ? "Saved PDF" : bill.status === "draft" || bill.status === "amendment_pending" ? "Draft preview" : "Unstored preview"}</span>{billEditHref(kind, bill) && <Link className="ui-button ml-3" href={billEditHref(kind, bill)!}>{["draft", "amendment_pending"].includes(bill.status) ? "Edit this draft" : "Edit confirmed bill"}</Link>}{!stored && <p className="mt-2 text-xs text-slate">Read-only preview of the current revision. Viewing does not approve, finalize or alter this bill.</p>}</div>}
     {error ? <div role="alert" className="ui-alert border-red-200 bg-red-50 text-red-800">{error}<button className="ui-button ml-3" type="button" onClick={() => setAttempt((value) => value + 1)}>Retry PDF</button></div> : url ? <iframe title={`PDF of ${bill ? billNumber(bill) : "bill"}`} src={url} className="h-[75dvh] min-h-[420px] w-full rounded-xl border border-line bg-warm" /> : <p role="status" className="py-8 text-sm text-slate">Loading PDF…</p>}
   </section>;
 }

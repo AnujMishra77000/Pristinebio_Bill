@@ -10,6 +10,7 @@ import { AuthGateStatus, type AuthStatus } from "@/app/components/AuthGate";
 import { RetainedBillEntry } from "@/app/components/RetainedBillEntry";
 import { PageHeader } from "@/app/components/PageHeader";
 import { BillSubmissionPanel } from "@/app/components/BillSubmissionPanel";
+import { SavedBillLoadError } from "@/app/components/SavedBillLoadError";
 import { PurchaseOrderSellerFields, PurchaseOrderShippingDetails, purchaseOrderSellerValues } from "@/app/components/PurchaseOrderSellerFields";
 import { ApiError, apiRequest } from "@/app/lib/api";
 import { useBillSubmission } from "@/app/lib/useBillSubmission";
@@ -300,6 +301,7 @@ function PurchaseOrderForm({ entry, authStatus }: { entry: InvoiceEntrySession; 
     entrySession: entry,
     collection: "/purchase-orders", payload, updateField: "domestic_details", validate: (): string | null => savedBill.blocked ? "Load the saved order successfully before saving; your fields are retained." : validatePurchaseOrder(),
     onCreated: reloadPurchaseMasters,
+    onReturned: () => savedBill.reloadLatest(),
     onStartNew: (): void => {
       submission.reset();
       const supplier = suppliers.find((item) => item.is_active && item.is_default) ?? suppliers.find((item) => item.is_active);
@@ -381,9 +383,7 @@ function PurchaseOrderForm({ entry, authStatus }: { entry: InvoiceEntrySession; 
             </div>
           )}
 
-          {savedBill.blocked && <div className="ui-alert mt-4" role={savedBill.error ? "alert" : "status"}>{savedBill.error || "Loading the saved bill…"}
-            {savedBill.error && <button className="ui-button ml-3" type="button" onClick={savedBill.retry}>Retry loading bill</button>}
-          </div>}
+          <SavedBillLoadError loader={savedBill} />
           {versionConflict && <button className="ui-button mt-3" type="button" disabled={submission.busy} onClick={savedBill.reloadLatest}>Reload latest revision</button>}
 
           <section className="mt-8">
@@ -413,7 +413,7 @@ function PurchaseOrderForm({ entry, authStatus }: { entry: InvoiceEntrySession; 
               <PurchaseOrderShippingDetails details={displayedSeller} />
 
               <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <label className="text-xs font-semibold text-slate-500">PO No.<input aria-label="PO No." aria-invalid={Boolean(purchaseOrderNumberError)} aria-describedby={purchaseOrderNumberError ? "po-number-error" : "po-number-hint"} className={inputClass} maxLength={100} onChange={(event) => { setPurchaseOrderNumber(event.target.value.toUpperCase()); setPurchaseOrderNumberError(null); }} placeholder="Enter your full PO number" value={purchaseOrderNumber} />{purchaseOrderNumberError ? <span id="po-number-error" role="alert" className="mt-1 block text-xs text-red-700">{purchaseOrderNumberError}</span> : <span id="po-number-hint" className="mt-1 block text-xs font-normal">Leave blank for automatic numbering.</span>}</label>
+                <label className="text-xs font-semibold text-slate-500">PO No.<input aria-label="PO No." readOnly={Boolean(submission.document?.correction)} aria-invalid={Boolean(purchaseOrderNumberError)} aria-describedby={purchaseOrderNumberError ? "po-number-error" : "po-number-hint"} className={inputClass} maxLength={100} onChange={(event) => { setPurchaseOrderNumber(event.target.value.toUpperCase()); setPurchaseOrderNumberError(null); }} placeholder="Enter your full PO number" value={purchaseOrderNumber} />{purchaseOrderNumberError ? <span id="po-number-error" role="alert" className="mt-1 block text-xs text-red-700">{purchaseOrderNumberError}</span> : <span id="po-number-hint" className="mt-1 block text-xs font-normal">{submission.document?.correction ? "The confirmed order number is fixed." : "Leave blank for automatic numbering."}</span>}</label>
                 <label className="text-xs font-semibold text-slate-500">PO date<input className={inputClass} onChange={(event) => setOrderDate(event.target.value)} required type="date" value={orderDate} /></label>
                 <label className="text-xs font-semibold text-slate-500">Expected delivery date<input className={inputClass} onChange={(event) => setExpectedDeliveryDate(event.target.value)} type="date" value={expectedDeliveryDate} /></label>
                 <label className="text-xs font-semibold text-slate-500">Dispatched through<input aria-label="Dispatched through" aria-invalid={Boolean(supplierErrors.transport_mode)} aria-describedby={supplierErrors.transport_mode ? "po-dispatch-error" : undefined} className={inputClass} maxLength={100} placeholder="e.g. ROAD, RAIL or Courier" type="text" value={transportMode} onChange={(event) => { setTransportMode(event.target.value); setSupplierErrors((current) => { const next = { ...current }; delete next.transport_mode; return next; }); }} />{supplierErrors.transport_mode && <span id="po-dispatch-error" role="alert" className="mt-1 block text-xs text-red-700">{supplierErrors.transport_mode}</span>}</label>

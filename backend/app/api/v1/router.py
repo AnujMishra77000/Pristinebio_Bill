@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import auth, bank_accounts, branches, companies, customers, dashboard, integrations, invoices, manufacturers, payments, products, purchasers, purchase_orders, suppliers, terms, transporters, users
+from app.api.v1 import bill_corrections
 
 
 router = APIRouter()
@@ -22,6 +23,7 @@ router.include_router(invoices.router, prefix="/invoices", tags=["invoices"])
 router.include_router(purchase_orders.router, prefix="/purchase-orders", tags=["purchase-orders"])
 router.include_router(payments.router, prefix="/payments", tags=["payments"])
 router.include_router(integrations.router, prefix="/integrations", tags=["integrations"])
+router.include_router(bill_corrections.router, tags=["bill-corrections"])
 
 
 @router.get("/status", tags=["system"])

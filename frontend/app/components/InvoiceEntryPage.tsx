@@ -9,6 +9,7 @@ import { AutoResizeTextarea } from "@/app/components/AutoResizeTextarea";
 import { AuthGateStatus, useAuthStatus, useSessionState, type AuthStatus } from "@/app/components/AuthGate";
 import { PageHeader } from "@/app/components/PageHeader";
 import { BillSubmissionPanel } from "@/app/components/BillSubmissionPanel";
+import { SavedBillLoadError } from "@/app/components/SavedBillLoadError";
 import { InvoiceSupplierPicker } from "@/app/components/InvoiceSupplierPicker";
 import { ApiError, apiRequest } from "@/app/lib/api";
 import { useBillSubmission } from "@/app/lib/useBillSubmission";
@@ -499,7 +500,7 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
       return "Supplier details could not load. Refresh suppliers and try again; your entries are retained.";
     }
     if (!invoiceDate) return "Enter the invoice date before saving.";
-    if (!/^[A-Z0-9][A-Z0-9/-]{0,29}$/.test(invoiceNumberSuffix.trim())) {
+    if (!submission.document?.correction && !/^[A-Z0-9][A-Z0-9/-]{0,29}$/.test(invoiceNumberSuffix.trim())) {
       setInvoiceNumberError("Enter an invoice number using 1–30 letters, digits, hyphens or slashes.");
       return "Enter a valid invoice number before saving.";
     }
@@ -626,6 +627,7 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
     collection: "/invoices", payload: buildPayload(), validate: (): string | null => savedBill.blocked ? "Load the saved bill successfully before saving; your current work is retained." : validateInvoiceDraft(),
     entrySession: entry, onStartNew,
     onCreated: reloadBillingMasters,
+    onReturned: () => savedBill.reloadLatest(),
     onFailure: (failure) => {
       if (failure instanceof Error && /invoice.number/i.test(failure.message)) setInvoiceNumberError(failure.message);
       if (failure instanceof ApiError) {
@@ -653,8 +655,8 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
     collection: "/invoices", parameter: "invoice", documentType, authenticated: authStatus === "authenticated", ready: isBillingDataLoaded,
     document: submission.document, busy: submission.busy, unsaved: submission.unsaved,
     hasWork: Boolean(submission.document || manualBuyer.name || invoiceNumberSuffix || lines.some((line) => line.product_name || line.product_id)),
-    load: async (id, signal) => {
-      const invoice = await apiRequest<Invoice>(`/invoices/${id}`, { signal, cache: "no-store" });
+    load: async (_id, signal, path) => {
+      const invoice = await apiRequest<Invoice>(path, { signal, cache: "no-store" });
       const editingSupplier = invoice.supplier_id ? await apiRequest<Supplier>(`/suppliers/${invoice.supplier_id}`, { signal, cache: "no-store" }) : null;
       return { ...invoice, editingSupplier };
     },
@@ -700,10 +702,7 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
             </div>
           )}
 
-          {savedBill.blocked && <div className="ui-alert mt-4" role={savedBill.error ? "alert" : "status"}>
-            {savedBill.error || "Loading the saved bill…"}
-            {savedBill.error && <button className="ui-button ml-3" type="button" onClick={savedBill.retry}>Retry loading bill</button>}
-          </div>}
+          <SavedBillLoadError loader={savedBill} />
           {versionConflict && <button className="ui-button mt-3" type="button" disabled={submission.busy} onClick={savedBill.reloadLatest}>Reload latest revision</button>}
 
           <section className="mt-8">
@@ -818,6 +817,7 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
                       aria-invalid={Boolean(invoiceNumberError)}
                       className="min-w-0 flex-1 rounded-r-xl bg-transparent px-3 py-3 text-sm font-medium text-ink outline-none"
                       id="invoice-number"
+                      readOnly={Boolean(submission.document?.correction)}
                       maxLength={30}
                       onChange={(event) => { setInvoiceNumberSuffix(event.target.value.toUpperCase()); setInvoiceNumberError(null); }}
                       onInvalid={(event) => { event.preventDefault(); setInvoiceNumberError("Enter an invoice number using 1–30 letters, digits, hyphens or slashes."); event.currentTarget.focus(); }}

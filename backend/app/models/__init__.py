@@ -1,4 +1,5 @@
 from app.models.company import Branch, Company
+from app.models.bill_correction import BillCorrection
 from app.models.master_records import (
     BankAccount,
     Customer,
@@ -18,6 +19,7 @@ from app.models.authentication import (AuthSession, RefreshCredential, AccountIn
 
 __all__ = [
     "BankAccount",
+    "BillCorrection",
     "Branch",
     "Company",
     "Customer",

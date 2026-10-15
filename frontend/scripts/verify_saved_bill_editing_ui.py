@@ -102,7 +102,7 @@ def main():
 
             page.route("**/api/v1/**", handle)
             page.goto(f"{BASE_URL}/bill-registers/{kind}")
-            expect(page.get_by_role("link", name="Edit bill PBPL/2026-27/FINAL-102" if collection == "invoices" else "Edit bill PO-FINAL-102", exact=True)).to_have_count(0)
+            expect(page.get_by_role("link", name="Edit bill PBPL/2026-27/FINAL-102" if collection == "invoices" else "Edit bill PO-FINAL-102", exact=True)).to_have_attribute("href", f"/{entry}?{'invoice' if collection == 'invoices' else 'order'}=102&correction=1")
             edit = page.get_by_role("link", name="Edit bill PBPL/2026-27/EDIT-101" if collection == "invoices" else "Edit bill PO-EDIT-101", exact=True)
             expect(edit).to_be_visible()
             expect(edit).to_have_attribute("href", f"/{entry}?{'invoice' if collection == 'invoices' else 'order'}=101")
