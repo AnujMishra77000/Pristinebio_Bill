@@ -1,10 +1,11 @@
 const INDIA_TIME_ZONE = "Asia/Kolkata";
 
-export function invoiceNumberPrefix(invoiceDate: string): string {
+export function invoiceNumberPrefix(invoiceDate: string, documentType: "sales" | "reagent" | "credit_note" = "sales"): string {
+  const prefix = documentType === "credit_note" ? "PBPL/CN/" : "PBPL/";
   const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(invoiceDate);
-  if (!match) return "PBPL/";
+  if (!match) return prefix;
   const startYear = Number(match[1]) - (Number(match[2]) < 4 ? 1 : 0);
-  return `PBPL/${startYear}-${String(startYear + 1).slice(-2)}/`;
+  return `${prefix}${startYear}-${String(startYear + 1).slice(-2)}/`;
 }
 
 export function indiaDateInputValue(date = new Date()): string {

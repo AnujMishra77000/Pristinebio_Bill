@@ -4,8 +4,8 @@ import type { DashboardSummary, Invoice, PurchaseOrder } from "./types";
 type RegisterConfig = {
   label: string; title: string; href: string; icon: AppIconName;
   collection: "invoices" | "purchase-orders";
-  documentType: "sales" | "domestic_oils" | "reagent";
-  countKey: keyof Pick<DashboardSummary, "sales_invoice_count" | "domestic_oils_purchase_order_count" | "reagent_invoice_count" | "reagent_purchase_order_count">;
+  documentType: "sales" | "domestic_oils" | "reagent" | "credit_note";
+  countKey: keyof Pick<DashboardSummary, "sales_invoice_count" | "domestic_oils_purchase_order_count" | "reagent_invoice_count" | "reagent_purchase_order_count" | "credit_note_count">;
 };
 
 export const billRegisters = {
@@ -13,6 +13,7 @@ export const billRegisters = {
   purchase: { label: "Purchase", title: "Purchase bills", href: "/bill-registers/purchase", icon: "purchase-order", collection: "purchase-orders", documentType: "domestic_oils", countKey: "domestic_oils_purchase_order_count" },
   reagent: { label: "Reagent", title: "Reagent bills", href: "/bill-registers/reagent", icon: "reagent", collection: "invoices", documentType: "reagent", countKey: "reagent_invoice_count" },
   "reagent-purchase": { label: "Reagent Purchase", title: "Reagent purchase bills", href: "/bill-registers/reagent-purchase", icon: "reagent-purchase-order", collection: "purchase-orders", documentType: "reagent", countKey: "reagent_purchase_order_count" },
+  "credit-note": { label: "Credit Note", title: "Credit notes", href: "/bill-registers/credit-notes", icon: "sales-invoice", collection: "invoices", documentType: "credit_note", countKey: "credit_note_count" },
 } as const satisfies Record<string, RegisterConfig>;
 
 export type BillRegisterKind = keyof typeof billRegisters;
@@ -22,7 +23,7 @@ export function billEditHref(kind: BillRegisterKind, bill: RegisteredBill): stri
   if (bill.document_type !== config.documentType || !Number.isSafeInteger(bill.id) || bill.id <= 0 || !Number.isSafeInteger(bill.version) || bill.version <= 0) return null;
   const correction = bill.status === "approved" || (config.collection === "invoices" && bill.status === "pdf_generated");
   if (!correction && bill.status !== "draft" && !(config.collection === "purchase-orders" && bill.status === "amendment_pending")) return null;
-  const entry = { sales: "/invoices", reagent: "/reagent-bills", purchase: "/purchase-orders", "reagent-purchase": "/reagent-purchase-orders" }[kind];
+  const entry = { sales: "/invoices", reagent: "/reagent-bills", purchase: "/purchase-orders", "reagent-purchase": "/reagent-purchase-orders", "credit-note": "/credit-notes" }[kind];
   return `${entry}?${config.collection === "invoices" ? "invoice" : "order"}=${bill.id}${correction ? "&correction=1" : ""}`;
 }
 export const billNumber = (bill: RegisteredBill) => "invoice_number" in bill ? bill.invoice_number ?? `Draft #${bill.id}` : bill.purchase_order_number;

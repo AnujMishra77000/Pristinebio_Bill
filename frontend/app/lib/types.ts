@@ -23,7 +23,7 @@ export interface BillCorrection { base_version: number; reason: string; status: 
 export interface PendingBillCorrection {
   collection: "invoices" | "purchase-orders";
   document_id: number;
-  document_type: "sales" | "reagent" | "domestic_oils";
+  document_type: "sales" | "reagent" | "credit_note" | "domestic_oils";
   document_number: string;
   version: number;
   reason: string;
@@ -77,7 +77,7 @@ export interface Invoice extends InvoiceTotals {
   created_by_id: number;
   submitted_by_id: number | null;
   id: number;
-  document_type: "sales" | "reagent";
+  document_type: "sales" | "reagent" | "credit_note";
   branch_id: number;
   buyer_customer_id: number;
   supplier_id: number | null;
@@ -215,4 +215,4 @@ export interface PurchaseOrder extends InvoiceTotals {
 }
 export interface RegisterPage<T> { items: T[]; total: number; page: number; page_size: number; }
 export interface DashboardActivity { document_type: "invoice" | "purchase_order"; document_id: number; action: string; actor_user_id: number; created_at: string; note: string | null; }
-export interface DashboardSummary { invoice_count: number; sales_invoice_count: number; reagent_invoice_count: number; purchase_order_count: number; domestic_oils_purchase_order_count: number; reagent_purchase_order_count: number; draft_invoices: number; draft_purchase_orders: number; pending_invoice_approvals: number; pending_purchase_order_approvals: number; recent_activity: DashboardActivity[]; }
+export interface DashboardSummary { invoice_count: number; sales_invoice_count: number; reagent_invoice_count: number; credit_note_count: number; purchase_order_count: number; domestic_oils_purchase_order_count: number; reagent_purchase_order_count: number; draft_invoices: number; draft_purchase_orders: number; pending_invoice_approvals: number; pending_purchase_order_approvals: number; recent_activity: DashboardActivity[]; }

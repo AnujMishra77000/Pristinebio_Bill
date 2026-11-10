@@ -23,6 +23,7 @@ export const navigationGroups: NavigationGroup[] = [
       { label: "Dashboard", href: "/", icon: "dashboard" },
       { label: "Billing", href: "/billing", icon: "billing" },
       { label: "Sales invoices", href: "/invoices", icon: "sales-invoice" },
+      { label: "Credit notes", href: "/credit-notes", icon: "sales-invoice" },
       { label: "Reagent bills", href: "/reagent-bills", icon: "reagent" },
       { label: "Purchase orders", href: "/purchase-orders", icon: "purchase-order" },
       { label: "Reagent purchase orders", href: "/reagent-purchase-orders", icon: "reagent-purchase-order" },

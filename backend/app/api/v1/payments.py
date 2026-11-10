@@ -157,6 +157,8 @@ def allocate_receipt(
     ensure_branch_access(user, receipt.branch_id)
     if invoice.branch_id != receipt.branch_id or invoice.buyer_customer_id != receipt.customer_id:
         raise HTTPException(422, "Receipt customer and invoice do not match")
+    if invoice.document_type == "credit_note":
+        raise HTTPException(422, "This is a document-only Credit Note and cannot receive payment allocations")
     if receipt.status != "posted":
         raise HTTPException(422, "Reversed receipt cannot be allocated")
     if invoice.status not in {InvoiceStatus.APPROVED, InvoiceStatus.PDF_GENERATED}:
@@ -240,7 +242,7 @@ def reverse_receipt(receipt_id: int, request: ReversalCreate, db: Session = Depe
 
 def _statement_rows(db: Session, user: User, customer_id: int) -> list[StatementItem]:
     customer = _customer(db, user, customer_id)
-    invoices = db.scalars(_scoped_statement(select(Invoice).where(Invoice.buyer_customer_id == customer.id, Invoice.status.in_([InvoiceStatus.APPROVED, InvoiceStatus.PDF_GENERATED])), Invoice, user).order_by(Invoice.invoice_date, Invoice.id)).all()
+    invoices = db.scalars(_scoped_statement(select(Invoice).where(Invoice.buyer_customer_id == customer.id, Invoice.document_type.in_(("sales", "reagent")), Invoice.status.in_([InvoiceStatus.APPROVED, InvoiceStatus.PDF_GENERATED])), Invoice, user).order_by(Invoice.invoice_date, Invoice.id)).all()
     today = date.today()
     result = []
     for invoice in invoices:

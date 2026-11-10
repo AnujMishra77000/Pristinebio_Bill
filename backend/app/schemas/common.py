@@ -15,7 +15,7 @@ class BillDeleteRequest(BaseModel):
 
     expected_version: int = Field(gt=0, strict=True)
     confirmation_number: str = Field(min_length=1, max_length=100)
-    document_type: Literal["sales", "domestic_oils", "reagent"]
+    document_type: Literal["sales", "domestic_oils", "reagent", "credit_note"]
 
     @field_validator("confirmation_number", mode="before")
     @classmethod

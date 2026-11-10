@@ -15,8 +15,8 @@ export function PageHeader({ icon, eyebrow, title, description, breadcrumb, acti
   const crumbs = breadcrumb ? (Array.isArray(breadcrumb) ? breadcrumb : [breadcrumb]) : [];
 
   return (
-    <header className="flex flex-col gap-5 pb-2 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
+    <header className="flex flex-col gap-5 pb-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="min-w-0 sm:flex-1 sm:basis-64">
         {crumbs.length > 0 && (
           <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-2 text-xs font-medium text-slate">
             {crumbs.map((crumb, index) => (
@@ -38,7 +38,7 @@ export function PageHeader({ icon, eyebrow, title, description, breadcrumb, acti
           </div>
         </div>
       </div>
-      {action && <div className="flex flex-wrap items-center gap-3 sm:shrink-0">{action}</div>}
+      {action && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">{action}</div>}
     </header>
   );
 }

@@ -17,9 +17,35 @@ from app.schemas.master_records import BankAccountCreate, BankAccountRead, BankA
 router = APIRouter()
 
 
-def _ensure_branch_exists(db: Session, branch_id: int) -> None:
-    if db.get(Branch, branch_id) is None:
+def _lock_profiles(db: Session, branch_ids: set[int]) -> None:
+    # All bank writes take profile locks first, in ID order. This also
+    # serializes concurrent default selections without changing the schema.
+    profiles = list(db.scalars(
+        select(Branch).where(Branch.id.in_(branch_ids)).order_by(Branch.id).with_for_update()
+    ))
+    if len(profiles) != len(branch_ids):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Branch does not exist")
+
+
+def _ensure_default_is_active(is_active: bool, is_default: bool) -> None:
+    if is_default and not is_active:
+        raise HTTPException(status_code=422, detail={
+            "field": "is_default", "message": "Only active bank accounts can be set as default",
+        })
+
+
+def _clear_other_defaults(db: Session, actor: User, branch_id: int, except_id: int | None = None) -> None:
+    statement = select(BankAccount).where(
+        BankAccount.branch_id == branch_id, BankAccount.is_default.is_(True),
+    ).order_by(BankAccount.id).with_for_update().execution_options(populate_existing=True)
+    if except_id is not None:
+        statement = statement.where(BankAccount.id != except_id)
+    for account in db.scalars(statement):
+        before = snapshot(account)
+        account.is_default = False
+        db.flush()
+        audit(db, actor, "bank_account_updated", "bank_account", account.id,
+              before=before, after=snapshot(account))
 
 
 def _get_bank_account(db: Session, current_user: User, bank_account_id: int) -> BankAccount:
@@ -37,7 +63,10 @@ def create_bank_account(
     current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
 ) -> BankAccount:
     ensure_branch_access(current_user, request.branch_id)
-    _ensure_branch_exists(db, request.branch_id)
+    _ensure_default_is_active(request.is_active, request.is_default)
+    _lock_profiles(db, {request.branch_id})
+    if request.is_default:
+        _clear_other_defaults(db, current_user, request.branch_id)
     bank_account = BankAccount(**request.model_dump())
     db.add(bank_account)
     db.flush()
@@ -81,12 +110,24 @@ def update_bank_account(
     current_user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
 ) -> BankAccount:
     bank_account = _get_bank_account(db, current_user, bank_account_id)
-    bank_account = db.scalar(select(BankAccount).where(BankAccount.id==bank_account_id).with_for_update().execution_options(populate_existing=True))
-    before=snapshot(bank_account)
+    original_branch_id = bank_account.branch_id
     updates = request.model_dump(exclude_unset=True)
-    if "branch_id" in updates:
-        ensure_branch_access(current_user, updates["branch_id"])
-        _ensure_branch_exists(db, updates["branch_id"])
+    target_branch_id = updates.get("branch_id", original_branch_id)
+    if target_branch_id is None:
+        raise HTTPException(status_code=422, detail="Seller/GST profile cannot be null")
+    ensure_branch_access(current_user, target_branch_id)
+    _lock_profiles(db, {original_branch_id, target_branch_id})
+    bank_account = db.scalar(select(BankAccount).where(BankAccount.id==bank_account_id).with_for_update().execution_options(populate_existing=True))
+    if bank_account.branch_id != original_branch_id:
+        raise HTTPException(status_code=409, detail="Bank account seller profile changed. Reload before saving.")
+    before=snapshot(bank_account)
+    target_active = updates.get("is_active", bank_account.is_active)
+    target_default = updates.get("is_default", bank_account.is_default)
+    if not target_active and "is_default" not in updates:
+        updates["is_default"] = target_default = False
+    _ensure_default_is_active(target_active, target_default)
+    if target_default:
+        _clear_other_defaults(db, current_user, target_branch_id, except_id=bank_account_id)
     for field, value in updates.items():
         setattr(bank_account, field, value)
     db.flush()

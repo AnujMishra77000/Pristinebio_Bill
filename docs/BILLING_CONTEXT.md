@@ -63,6 +63,14 @@ The client's 2026-09-16 request sets newly created or changed account passwords 
 - Pytest and Playwright testing
 - Docker Compose for local and development orchestration
 
+## Internal document-only Credit Notes (corrected 2026-10-26)
+
+The client explicitly requested a system document, **not an accounting/banking Credit Note**. Use the Reagent Bill fields and rules: product and manufacturer remain independent selections, every line requires an active manufacturer and supported reagent unit, and transaction snapshots retain manufacturer name/code, article/code, Pack/Size, discount percentage and GST values. Reuse Decimal calculations, buyer/consignee/seller snapshots, roles, submission/approval, preview/confirmation, audit, retained same-tab work and controlled confirmed corrections. Persist `document_type=credit_note` in the existing invoice domain; its type cannot change through editing. Creation/list/register/detail/workflow/PDF APIs remain under `/api/v1/invoices`, with an explicit type filter for its separate register. No additional accounting fields, original-invoice linkage or financial reversal is implied.
+
+Use a separate manually suffixed `PBPL/CN/{Indian financial year}/` series (April–March). Preserve Sales/Reagent's shared `PBPL/{financial year}/` namespace and both PO types' shared namespace. Existing full-number database uniqueness and idempotency protect Credit Note saves. Its dashboard count is separate; ordinary aggregate invoice counts and payment statements/ageing/export exclude it. Reject receipt allocations and external accounting/GST jobs for this type server-side. Do not infer a customer credit from its positive displayed document total.
+
+Create at `/credit-notes`; register at `/bill-registers/credit-notes` with date filters, Edit, View and confirmed-PDF Print. Draft Edit restores snapshots; confirmed Edit retains the original number and uses existing reasoned/approved corrections. New PDFs reuse the Reagent Bill presentation, default terms, four copy labels and maximum-four-products page behavior; Credit Note title/number/date/footer labels and version `a4-credit-note-v2` retain its separate identity. No issued snapshot/PDF is rewritten, no schema migration is needed, and shared layout/CSS/fonts/logos remain unchanged.
+
 ## Billing correctness rules
 
 - Use `Decimal` for money and quantity values throughout the application and PDF-generation pipeline.
@@ -76,6 +84,12 @@ The client's 2026-09-16 request sets newly created or changed account passwords 
 - Treat the approved invoice reference as a layout contract. Do not redesign, simplify, or omit fields without an explicit decision.
 - Keep invoice approval state and audit-relevant transitions explicit and testable.
 - Keep all API routes under `/api/v1`.
+
+### Bank-account default maintenance (approved 2026-10-27)
+
+Maintain the account used by new bills and purchase orders under **Bank accounts**. Admin can edit a saved account, set/clear its default, and activate/deactivate it. Setting an active default clears every other default for that seller profile in the same transaction and audits each change. Bank writes lock the affected seller profiles before account rows to serialize application default selections; no model/schema change or migration is introduced. Deactivation clears the default flag; reactivation does not restore it automatically. Other profiles remain independent.
+
+Seller/GST profile bank fields remain the compatibility fallback when no active default Bank Account is selected; the profile screen links to Bank accounts and explains this priority. Existing invoice bank snapshots and stored final invoice/PO PDFs are not rewritten. Existing bill editing, approval, rendering and per-document bank-selection APIs retain their current behavior.
 
 ### Confirmed-bill corrections (approved 2026-10-15)
 
@@ -152,6 +166,8 @@ New Domestic Purchase Order and Reagent Purchase Order PDFs each contain **one c
 In newly generated Reagent Bill and Reagent Purchase Order PDFs, the item-table **Quantity** cell contains only the entered numeric quantity, using the existing Decimal quantity formatter (for example `12`, `0.125`, `1234.5`). Do not append KG, GM, ML or any other unit/Per label. The client's follow-up makes these numeric values **bold at the same existing font size**. Units remain required/stored in transaction data and entry forms; calculations and Pack/Size are unchanged. Sales and Domestic PO quantity presentation retain their existing units and regular weight. This supersedes earlier reagent-only rules that printed the unit beside Quantity. New reagent versions are `a4-reagent-bill-v13` and `a4-reagent-purchase-order-v12`; existing stored PDFs are not rewritten.
 
 ### Four-product physical pages (authorized correction, 2026-10-08)
+
+The 2026-10-16 Reagent Bill follow-up corrects overflow fragmentation only: after a valid measured split, pull consecutive products from following pages into available space when the complete candidate still fits A4. Retain the four-product maximum, original order/serials, all four copy labels, repeated fixed sections and final-page-only totals. Do not strand displaced products on one-item pages when they fit together; six taller products may use 3/3 rather than 3/1/1/1. This uses Reagent Bill template version `a4-reagent-bill-v14`; other formats, HTML/CSS/fonts and historical stored PDFs are unchanged. Compaction is bounded and uses real Chromium geometry, not a fixed three-product rule or reduced font sizes.
 
 Sales Invoices, Reagent Bills, Domestic POs and Reagent POs accept any supported document line count, but newly rendered PDFs contain at most **four products per physical A4 page**. Product five begins a new complete page; normal ten-product documents paginate 4/4/2 per copy. Repeat the existing identity, party panels, table headings, bank details, terms, signature and footer on each product page. Preserve global serial numbers and existing copy-label behavior. Quantity, amount-in-words and all document calculation values are blank on intermediate pages and filled only on the final product page; line amounts/taxes remain visible beside their own products.
 

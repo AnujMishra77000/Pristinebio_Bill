@@ -27,9 +27,10 @@ def dashboard_summary(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> dict:
-    invoices = _scoped(select(Invoice), Invoice, current_user)
+    invoices = _scoped(select(Invoice).where(Invoice.document_type.in_(("sales", "reagent"))), Invoice, current_user)
     sales_invoices = _scoped(select(Invoice).where(Invoice.document_type == "sales"), Invoice, current_user)
     reagent_invoices = _scoped(select(Invoice).where(Invoice.document_type == "reagent"), Invoice, current_user)
+    credit_notes = _scoped(select(Invoice).where(Invoice.document_type == "credit_note"), Invoice, current_user)
     purchase_orders = _scoped(select(PurchaseOrder), PurchaseOrder, current_user)
     pending_invoices = _scoped(select(Invoice).where(Invoice.status == InvoiceStatus.PENDING_APPROVAL), Invoice, current_user)
     pending_pos = _scoped(select(PurchaseOrder).where(PurchaseOrder.status == "pending_approval"), PurchaseOrder, current_user)
@@ -55,6 +56,7 @@ def dashboard_summary(
         "invoice_count": db.scalar(select(func.count()).select_from(invoices.subquery())) or 0,
         "sales_invoice_count": db.scalar(select(func.count()).select_from(sales_invoices.subquery())) or 0,
         "reagent_invoice_count": db.scalar(select(func.count()).select_from(reagent_invoices.subquery())) or 0,
+        "credit_note_count": db.scalar(select(func.count()).select_from(credit_notes.subquery())) or 0,
         "purchase_order_count": db.scalar(select(func.count()).select_from(purchase_orders.subquery())) or 0,
         "domestic_oils_purchase_order_count": db.scalar(select(func.count()).select_from(purchase_orders.where(PurchaseOrder.document_type == "domestic_oils").subquery())) or 0,
         "reagent_purchase_order_count": db.scalar(select(func.count()).select_from(purchase_orders.where(PurchaseOrder.document_type == "reagent").subquery())) or 0,

@@ -21,14 +21,17 @@ const message = (error: unknown) => {
 const statusLabel = (value: string) => value.replaceAll("_", " ");
 const validVersion = (bill: RegisteredBill) => Number.isSafeInteger(bill.version) && bill.version > 0;
 
-export function BillRegisterActions({ kind, bill, isAdmin, onView, onDelete }: {
+export function BillRegisterActions({ kind, bill, isAdmin, onView, onDelete, onPrint }: {
   kind?: BillRegisterKind; bill: RegisteredBill; isAdmin: boolean;
   onView: (button: HTMLButtonElement) => void; onDelete: (button: HTMLButtonElement) => void;
+  onPrint?: (button: HTMLButtonElement) => void;
 }) {
-  const editHref = billEditHref(kind ?? ("invoice_number" in bill ? bill.document_type === "reagent" ? "reagent" : "sales" : bill.document_type === "reagent" ? "reagent-purchase" : "purchase"), bill);
+  const editHref = billEditHref(kind ?? ("invoice_number" in bill ? bill.document_type === "credit_note" ? "credit-note" : bill.document_type === "reagent" ? "reagent" : "sales" : bill.document_type === "reagent" ? "reagent-purchase" : "purchase"), bill);
+  const canPrint = kind === "credit-note" && bill.document_type === "credit_note" && validVersion(bill) && bill.pdf_storage_key && ["approved", "pdf_generated"].includes(bill.status);
   return <div className="flex flex-wrap gap-2">
     <button type="button" aria-label={`View bill ${billNumber(bill)}`} className="ui-button" onClick={(event) => onView(event.currentTarget)}>View</button>
     {editHref && <Link aria-label={`Edit bill ${billNumber(bill)}`} className="ui-button" href={editHref}>Edit</Link>}
+    {canPrint && onPrint && <button type="button" aria-label={`Print bill ${billNumber(bill)}`} className="ui-button" onClick={(event) => onPrint(event.currentTarget)}>Print</button>}
     {isAdmin && <button type="button" aria-label={`Delete bill ${billNumber(bill)}`} disabled={!validVersion(bill)} title={!validVersion(bill) ? "Reload the register to obtain a valid bill version." : undefined} className="ui-button border-red-200 text-red-800" onClick={(event) => onDelete(event.currentTarget)}>Delete</button>}
   </div>;
 }
@@ -101,20 +104,34 @@ export function BillDeleteDialog({ kind, bill, canDelete, onCancel, onDeletionPe
   </dialog>;
 }
 
-export function BillPdfView({ kind, id, onClose }: { kind: BillRegisterKind; id: number; onClose: () => void }) {
+export function BillPdfView({ kind, id, onClose, autoPrint = false }: { kind: BillRegisterKind; id: number; onClose: () => void; autoPrint?: boolean }) {
   const config = billRegisters[kind];
   const [bill, setBill] = useState<RegisteredBill | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const frameReady = useRef(false);
+  const printQueued = useRef(autoPrint);
   const stored = bill?.pdf_storage_key && ["approved", "pdf_generated", "closed", "cancelled"].includes(bill.status);
+
+  function printPdf() {
+    if (kind !== "credit-note" || !stored || !url || bill?.document_type !== "credit_note") return;
+    if (!frameReady.current) { printQueued.current = true; return; }
+    try {
+      const target = frame.current?.contentWindow;
+      if (!target) throw new Error("Wait for the saved PDF to load, then retry printing.");
+      target.focus(); target.print();
+    } catch (failure) { setError(message(failure)); }
+  }
 
   useEffect(() => { heading.current?.focus({ preventScroll: true }); heading.current?.scrollIntoView({ block: "nearest" }); }, []);
   useEffect(() => {
     let active = true;
     let objectUrl: string | null = null;
     const controller = new AbortController();
+    frameReady.current = false;
     setUrl(null); setBill(null); setError(null);
     void (async () => {
       try {
@@ -134,8 +151,8 @@ export function BillPdfView({ kind, id, onClose }: { kind: BillRegisterKind; id:
 
   return <section aria-label="Bill PDF view" className="ui-panel mt-5">
     <div className="ui-section-heading"><div className="min-w-0"><h2 ref={heading} tabIndex={-1} className="ui-section-title break-words">{bill ? billNumber(bill) : "Bill PDF view"}</h2>{bill && <p className="mt-2 text-xs text-slate">{displayBillDate(billDate(bill))} · {billParty(bill)} · <span className="capitalize">{statusLabel(bill.status)}</span> · ₹ {bill.final_total}</p>}</div><button className="ui-button" type="button" onClick={onClose}><AppIcon name="close" size={16} />Close view</button></div>
-    {bill && <div className="mb-4"><span className="ui-badge">{stored ? "Saved PDF" : bill.status === "draft" || bill.status === "amendment_pending" ? "Draft preview" : "Unstored preview"}</span>{billEditHref(kind, bill) && <Link className="ui-button ml-3" href={billEditHref(kind, bill)!}>{["draft", "amendment_pending"].includes(bill.status) ? "Edit this draft" : "Edit confirmed bill"}</Link>}{!stored && <p className="mt-2 text-xs text-slate">Read-only preview of the current revision. Viewing does not approve, finalize or alter this bill.</p>}</div>}
-    {error ? <div role="alert" className="ui-alert border-red-200 bg-red-50 text-red-800">{error}<button className="ui-button ml-3" type="button" onClick={() => setAttempt((value) => value + 1)}>Retry PDF</button></div> : url ? <iframe title={`PDF of ${bill ? billNumber(bill) : "bill"}`} src={url} className="h-[75dvh] min-h-[420px] w-full rounded-xl border border-line bg-warm" /> : <p role="status" className="py-8 text-sm text-slate">Loading PDF…</p>}
+    {bill && <div className="mb-4 flex flex-wrap items-center gap-3"><span className="ui-badge">{stored ? "Saved PDF" : bill.status === "draft" || bill.status === "amendment_pending" ? "Draft preview" : "Unstored preview"}</span>{billEditHref(kind, bill) && <Link className="ui-button" href={billEditHref(kind, bill)!}>{["draft", "amendment_pending"].includes(bill.status) ? "Edit this draft" : "Edit confirmed bill"}</Link>}{kind === "credit-note" && stored && url && !error && <button className="ui-button" type="button" onClick={printPdf}>Print</button>}{!stored && <p className="w-full text-xs text-slate">Read-only preview of the current revision. Viewing does not approve, finalize or alter this bill.</p>}</div>}
+    {error ? <div role="alert" className="ui-alert flex flex-wrap items-center gap-3 border-red-200 bg-red-50 text-red-800">{error}<button className="ui-button" type="button" onClick={() => setAttempt((value) => value + 1)}>Retry PDF</button></div> : url ? <iframe ref={frame} title={`PDF of ${bill ? billNumber(bill) : "bill"}`} src={url} onLoad={() => { frameReady.current = true; if (printQueued.current) { printQueued.current = false; printPdf(); } }} className="bill-pdf-frame rounded-xl border border-line bg-warm" /> : <p role="status" className="py-8 text-sm text-slate">Loading PDF…</p>}
   </section>;
 }
 
@@ -156,6 +173,7 @@ export function BillRegisterPage({ kind }: { kind: BillRegisterKind }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewId, setViewId] = useState<number | null>(null);
+  const [printAttempt, setPrintAttempt] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<RegisteredBill | null>(null);
   const [deletedMessage, setDeletedMessage] = useState("");
   const deleteButton = useRef<HTMLButtonElement | null>(null);
@@ -234,12 +252,12 @@ export function BillRegisterPage({ kind }: { kind: BillRegisterKind }) {
       </form>
       <p role="status" className="mt-4 text-xs text-slate">Applied: <span className="font-semibold text-peacock">{applied}</span>{result && ` · ${result.total} ${result.total === 1 ? "bill" : "bills"}`}</p>
     </section>
-    {viewId !== null && <BillPdfView key={viewId} kind={kind} id={viewId} onClose={() => { setViewId(null); viewButton.current?.focus(); }} />}
+    {viewId !== null && <BillPdfView key={`${viewId}:${printAttempt}`} kind={kind} id={viewId} autoPrint={printAttempt > 0} onClose={() => { setViewId(null); viewButton.current?.focus(); }} />}
     <section aria-label="Saved bills" className="ui-panel mt-5 !p-0" aria-busy={loading}>
       {loading ? <p role="status" className="p-6 text-sm text-slate">Loading bills…</p> : error ? <div className="p-6"><p role="alert" className="ui-alert border-red-200 bg-red-50 text-red-800">{error}</p><button type="button" className="ui-button mt-3" onClick={() => setAttempt((value) => value + 1)}>Retry loading</button></div> : result && result.items.length ? <>
-        <div className="ui-table-wrap"><table className="ui-table min-w-[720px]"><caption className="sr-only">{config.title}, ordered newest first by bill date</caption><thead><tr><th scope="col">Bill date</th><th scope="col">Bill number</th><th scope="col">{config.collection === "invoices" ? "Buyer" : "Purchaser / Supplier"}</th><th scope="col" className="text-right">Total</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>{result.items.map((bill, index) => <Fragment key={bill.id}>
+        <div className="ui-table-wrap" role="region" aria-label={`${config.title} table — scroll horizontally for all columns`} tabIndex={0}><table className="ui-table min-w-[720px]"><caption className="sr-only">{config.title}, ordered newest first by bill date</caption><thead><tr><th scope="col">Bill date</th><th scope="col">Bill number</th><th scope="col">{config.collection === "invoices" ? "Buyer" : "Purchaser / Supplier"}</th><th scope="col" className="text-right">Total</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>{result.items.map((bill, index) => <Fragment key={bill.id}>
           {(index === 0 || billDate(bill) !== billDate(result.items[index - 1])) && <tr><th scope="rowgroup" colSpan={6} className="border-b border-line bg-warm-green/60 px-4 py-2 text-left text-xs font-semibold text-peacock">{displayBillDate(billDate(bill))}</th></tr>}
-          <tr><td className="whitespace-nowrap">{displayBillDate(billDate(bill))}</td><td className="max-w-72 break-words font-semibold">{billNumber(bill)}</td><td className="max-w-72 break-words">{billParty(bill)}</td><td className="whitespace-nowrap text-right font-semibold tabular-nums">₹ {bill.final_total}</td><td><span className="ui-badge capitalize">{statusLabel(bill.status)}</span></td><td><BillRegisterActions kind={kind} bill={bill} isAdmin={isAdmin} onView={(button) => { viewButton.current = button; setViewId(bill.id); }} onDelete={(button) => { deleteButton.current = button; setDeletedMessage(""); setDeleteTarget(bill); }} /></td></tr>
+          <tr><td className="whitespace-nowrap">{displayBillDate(billDate(bill))}</td><td className="max-w-72 break-words font-semibold">{billNumber(bill)}</td><td className="max-w-72 break-words">{billParty(bill)}</td><td className="whitespace-nowrap text-right font-semibold tabular-nums">₹ {bill.final_total}</td><td><span className="ui-badge capitalize">{statusLabel(bill.status)}</span></td><td><BillRegisterActions kind={kind} bill={bill} isAdmin={isAdmin} onView={(button) => { viewButton.current = button; setPrintAttempt(0); setViewId(bill.id); }} onPrint={(button) => { viewButton.current = button; setPrintAttempt((value) => value + 1); setViewId(bill.id); }} onDelete={(button) => { deleteButton.current = button; setDeletedMessage(""); setDeleteTarget(bill); }} /></td></tr>
         </Fragment>)}</tbody></table></div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-4"><p ref={pageStatus} tabIndex={-1} role="status" className="text-xs text-slate">Page {page} of {Math.max(1, Math.ceil(result.total / PAGE_SIZE))} · {result.total} bills</p><div className="flex gap-2"><button aria-label="Previous page" type="button" disabled={page === 1} className="ui-button" onClick={() => { focusPageStatus.current = true; setViewId(null); setPage((value) => value - 1); }}>Previous</button><button aria-label="Next page" type="button" disabled={page * PAGE_SIZE >= result.total} className="ui-button" onClick={() => { focusPageStatus.current = true; setViewId(null); setPage((value) => value + 1); }}>Next</button></div></div>
       </> : <div className="ui-empty"><AppIcon name={config.icon} size={28} /><p>{dates.from ? "No bills match these dates." : "No saved bills yet."}</p></div>}

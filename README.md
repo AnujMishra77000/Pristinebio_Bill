@@ -2,6 +2,27 @@
 
 Single-company chemical/raw-material billing with master records, invoice draft/approval workflow, Decimal calculations and A4 PDFs. Phase 2 adds revocable cookie sessions and audited sensitive permissions. Authenticator MFA is disabled by the current client decision. PDF implementation is unchanged.
 
+## Internal Credit Notes
+
+Use **Credit Note** on the dashboard/Billing desk or Explore → **Credit notes**. Create at `/credit-notes`; its date-filtered register is `/bill-registers/credit-notes`. It uses the Reagent Bill entry contract: independent product and active manufacturer selection, manufacturer article/code, Pack/Size, supported reagent units, discount percentage, GST breakdown, saved buyer/shipping snapshots, approvals, in-page PDF preview, confirmation, download and printing. Register **Edit** restores saved values; confirmed edits use the existing reasoned correction/reapproval workflow.
+
+Enter a number suffix after `PBPL/CN/{Indian financial year}/` (April–March). This separate series does not reserve or change Sales/Reagent numbers. New PDFs use the Reagent Bill layout and four copies with Credit Note labels and version `a4-credit-note-v2`; already generated historical PDFs are not regenerated.
+
+These are **internal document-only Credit Notes**, as requested: they do not adjust receivables, customer balances, receipts, GST returns or external accounting. Payment allocation and outbound integration are rejected server-side. No original-invoice linkage or accounting reversal is implied. Existing records/PDFs are not rewritten. No new migration or environment variable is required; restart/rebuild both applications through your normal release process. Nothing is deployed automatically.
+
+Targeted verification from the repository root:
+
+```bash
+cd backend
+./.venv/bin/python -m pytest tests/test_credit_notes.py tests/test_credit_note_pdf.py -q
+cd ../frontend
+node --test scripts/credit_notes.test.mjs scripts/bill_corrections.test.mjs scripts/invoice_entry_session.test.mjs
+# With the frontend running locally; every backend request is intercepted:
+FRONTEND_BASE_URL=http://127.0.0.1:3000 ../backend/.venv/bin/python scripts/verify_credit_note_ui.py
+```
+
+PDF tests require Chromium and `pdftoppm`. Set `CREDIT_NOTE_PDF_OUTPUT=/private/tmp/billing-credit-note-verification` to retain synthetic PDFs/page PNGs; otherwise pytest's temporary directory is used. These checks do not access client data.
+
 ## Local Startup With Docker Compose
 
 ```bash
@@ -81,6 +102,17 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 Run migrations exactly once per release before starting replicas. The backend image does not run Alembic on application startup. PostgreSQL and Redis have no host ports in the production Compose definition; an HTTPS reverse proxy must expose the configured public frontend/API origin.
 
 ## Test And Verification Commands
+
+### Responsive frontend checks
+
+With the local frontend running on port 3100, run from `frontend/`:
+
+```bash
+FRONTEND_BASE_URL=http://127.0.0.1:3100 ../backend/.venv/bin/python scripts/verify_responsive_workspace_ui.py
+FRONTEND_BASE_URL=http://127.0.0.1:3100 ../backend/.venv/bin/python scripts/verify_responsive_entry_ui.py
+```
+
+These intercept all API requests with synthetic fixtures: no client database or credentials are needed. The workspace check covers 23 screens at five phone/tablet/desktop widths; the entry check exercises populated forms and line controls for all four bill types. Screenshots are written to `/private/tmp/billing-responsive-workspace`. Physical-device/browser PDF support still needs device testing; generated A4 PDF layouts are not modified by responsive web styling.
 
 ### Edit a confirmed bill
 

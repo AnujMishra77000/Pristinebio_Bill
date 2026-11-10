@@ -16,7 +16,7 @@ async function compile(path, dependencies) {
 }
 class ApiError extends Error { constructor(status, message, detail) { super(message); this.status = status; this.detail = detail; } }
 // Minimal hook scheduler: real application functions, with only React and HTTP boundaries replaced.
-async function harness({ collection = '/invoices', updateField, role = 'admin', document, respond } = {}) {
+async function harness({ collection = '/invoices', documentType = 'sales', updateField, role = 'admin', document, respond } = {}) {
   let cursor = 0, effects = [], slots = [], current;
   const calls = [], values = new Map();
   const ref = (key, initial) => ({ get current() { return values.has(key) ? values.get(key) : initial; }, set current(value) { values.set(key, value); } });
@@ -33,7 +33,7 @@ async function harness({ collection = '/invoices', updateField, role = 'admin', 
   const entry = { active: true, write(key, value) { values.set(key, value); } };
   const sessions = { useInvoiceEntryRef: (_entry, key, initial) => ref(key, initial), useInvoiceEntryValue: (_entry, key, initial) => [values.has(key) ? values.get(key) : initial, value => values.set(key, typeof value === 'function' ? value(values.get(key) ?? initial) : value)] };
   const { useBillSubmission } = await compile('../app/lib/useBillSubmission.ts', { react, './api': api, './invoiceEntrySession': sessions });
-  const payload = { document_type: 'sales', invoice_number_suffix: 'LEGACY-101', buyer: { name: 'Snapshot' }, lines: [{ quantity: '2.000', rate: '100.0000' }] };
+  const payload = { document_type: documentType, invoice_number_suffix: 'LEGACY-101', buyer: { name: 'Snapshot' }, lines: [{ quantity: '2.000', rate: '100.0000' }] };
   const RenderHarness = () => { cursor = 0; effects = []; current = useBillSubmission({ collection, updateField, payload, entrySession: entry, validate: () => null }); effects.forEach(effect => effect()); return current; };
   RenderHarness();
   if (document) { current.restore(document); RenderHarness(); RenderHarness(); }
@@ -41,6 +41,54 @@ async function harness({ collection = '/invoices', updateField, role = 'admin', 
 }
 const correction = (overrides = {}) => ({ id: 101, version: 5, status: 'draft', pdf_storage_key: null, created_by_id: 2, submitted_by_id: null, submitted_revision: null,
   correction: { base_version: 5, reason: '', status: 'draft', previous_final_total: '118.00' }, ...overrides });
+
+test('Credit Notes create once, PATCH the saved ID and require review before role-controlled confirmation', async () => {
+  for (const role of ['staff', 'manager', 'admin']) {
+    const saved = { id: 101, document_type: 'credit_note', version: 1, status: 'draft', correction: null,
+      created_by_id: 1, submitted_by_id: null, pdf_storage_key: null };
+    const h = await harness({ documentType: 'credit_note', role, respond: call => {
+      if (call.path === '/invoices') return { ...saved };
+      if (call.method === 'PATCH') return { ...saved, version: 2 };
+      if (call.path.endsWith('/submit')) return { ...saved, version: 3, status: 'pending_approval', submitted_by_id: 1, submitted_revision: 2 };
+      if (call.path.endsWith('/approve')) return { ...saved, version: 4, status: 'approved', submitted_revision: 2, approved_revision: 2 };
+      if (call.path.endsWith('/generate-pdf')) return { ...saved, version: 5, status: 'pdf_generated', pdf_storage_key: 'credit-note.pdf' };
+      throw new Error(`Unexpected request ${call.path}`);
+    } });
+    await h.current.save(); h.render();
+    assert.equal(h.calls[0].path, '/invoices');
+    assert.equal(h.calls[0].body.document_type, 'credit_note');
+    assert.equal(h.calls[0].body.lines[0].rate, '100.0000');
+    h.payload.lines[0].quantity = '12.345'; h.render();
+    await h.current.save(); h.render();
+    assert.equal(h.calls[1].path, '/invoices/101');
+    assert.equal(h.calls[1].method, 'PATCH');
+    assert.equal(h.calls[1].body.expected_version, 1);
+    assert.equal(h.calls[1].body.lines[0].quantity, '12.345');
+    await h.current.confirm(); h.render();
+    assert.equal(h.calls.length, 2, 'Confirm must not submit an unreviewed revision');
+    await h.current.preview(); h.render();
+    await h.current.confirm(); h.render();
+    assert.deepEqual(h.calls.map(call => call.path), ['/invoices', '/invoices/101', '/invoices/101/preview-pdf', '/invoices/101/submit',
+      ...(role === 'admin' ? ['/invoices/101/approve', '/invoices/101/generate-pdf', '/invoices/101/pdf'] : [])]);
+    assert.equal(h.current.finalReady, role === 'admin');
+    assert.equal(h.values.get('submission.completed') === true, role === 'admin');
+  }
+});
+
+test('Credit Note corrections preserve the issued number and save with their reason and optimistic version', async () => {
+  const h = await harness({ documentType: 'credit_note', document: correction({ document_type: 'credit_note' }),
+    respond: call => ({ ...correction(), document_type: 'credit_note', version: 6, correction: { ...correction().correction, reason: call.body.correction_reason } }) });
+  await h.current.save(); h.render();
+  assert.deepEqual(h.calls, [], 'A Credit Note correction needs a reason');
+  h.current.setCorrectionReason('Correct the entered quantity'); h.render();
+  await h.current.preview(); h.render();
+  assert.equal(h.calls[0].path, '/invoices/101/correction');
+  assert.equal(h.calls[0].method, 'PATCH');
+  assert.equal(h.calls[0].body.expected_version, 5);
+  assert.equal(h.calls[0].body.correction_reason, 'Correct the entered quantity');
+  assert.equal('invoice_number_suffix' in h.calls[0].body, false);
+  assert.equal(h.calls[1].path, '/invoices/101/correction/preview-pdf');
+});
 
 test('a virtual correction cannot save without a reason or create another bill', async () => {
   const h = await harness({ document: correction(), respond() { throw Error('Unexpected HTTP'); } });

@@ -202,7 +202,7 @@ def save(db: Session, user, collection, document_id, request):
         if collection == "invoices":
             # Existing draft validation/calculation operates on a transient copy.
             if "invoice_number_suffix" in fields:
-                intended_number = f"{api.invoice_number_prefix_for(request.invoice_date or bill.invoice_date)}{fields['invoice_number_suffix']}"
+                intended_number = f"{api.invoice_number_prefix_for(request.invoice_date or bill.invoice_date, bill.document_type)}{fields['invoice_number_suffix']}"
                 if intended_number != bill.invoice_number:
                     raise error("issued_number_immutable", "A correction must keep the confirmed invoice number.")
                 fields.pop("invoice_number_suffix")

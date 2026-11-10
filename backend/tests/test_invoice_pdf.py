@@ -809,7 +809,7 @@ def test_reagent_bill_pdf_uses_its_versioned_item_columns(tmp_path):
     for heading in ("Sr. No.", "Item Description", "HSN/SAC", "GST", "Quantity", "Pack/Size", "Rate", "Disc %", "Amount"):
         assert f">{heading}</th>" in html
     assert html.count('class="items-table reagent-items-table"') == len(COPY_LABELS)
-    assert html.count("a4-reagent-bill-v13") == 1
+    assert html.count("a4-reagent-bill-v14") == 1
     assert html.count("IRN No.:") == len(COPY_LABELS)
     assert html.count("PO Date:") == len(COPY_LABELS)
     assert html.count("E-Way Bill No.:") == len(COPY_LABELS)

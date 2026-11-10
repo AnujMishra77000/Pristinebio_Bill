@@ -66,8 +66,8 @@ export function AuthFlow({ onComplete, initialUser = null, allowEntry = true, in
   return <div className="space-y-5">
     <h2 className="text-lg font-semibold">{mode === "invite" ? "Accept invitation" : mode === "register" ? "Register as Admin" : "Sign in"}</h2>
     {allowEntry && mode !== "invite" && <div className="flex flex-wrap gap-x-5 gap-y-2 border-b border-line pb-4">
-      <button type="button" onClick={() => switchMode("login")} className={mode === "login" ? "text-sm font-semibold text-peacock" : "text-sm font-semibold text-slate hover:text-ink"}>Sign in</button>
-      <button type="button" onClick={() => switchMode("register")} className={mode === "register" ? "text-sm font-semibold text-peacock" : "text-sm font-semibold text-slate hover:text-ink"}>Register as Admin</button>
+      <button type="button" onClick={() => switchMode("login")} className={`min-h-11 rounded-lg px-1 text-sm font-semibold ${mode === "login" ? "text-peacock" : "text-slate hover:text-ink"}`}>Sign in</button>
+      <button type="button" onClick={() => switchMode("register")} className={`min-h-11 rounded-lg px-1 text-sm font-semibold ${mode === "register" ? "text-peacock" : "text-slate hover:text-ink"}`}>Register as Admin</button>
     </div>}
     {mode === "login" && <p className="text-xs leading-5 text-slate">Use your account email and passphrase. Admin, Manager and Staff accounts use the same secure sign-in.</p>}
     {mode === "register" && <p className="text-xs leading-5 text-slate">Create an active Admin account. Multiple Admin registrations are currently allowed.</p>}

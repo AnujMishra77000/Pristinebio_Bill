@@ -55,15 +55,16 @@ def financial_year_for(invoice_date) -> str:
     return f"{start_year}-{str(start_year + 1)[-2:]}"
 
 
-def invoice_number_prefix_for(invoice_date) -> str:
-    return f"PBPL/{financial_year_for(invoice_date)}/"
+def invoice_number_prefix_for(invoice_date, document_type: str = "sales") -> str:
+    family = "PBPL/CN" if document_type == "credit_note" else "PBPL"
+    return f"{family}/{financial_year_for(invoice_date)}/"
 
 
 def _set_manual_invoice_number(db: Session, invoice: Invoice, suffix: str) -> None:
     financial_year = financial_year_for(invoice.invoice_date)
     branch = db.get(Branch, invoice.branch_id)
     _lock_counter(db, invoice.branch_id, financial_year, company_id=branch.company_id)
-    invoice_number = f"{invoice_number_prefix_for(invoice.invoice_date)}{suffix}"
+    invoice_number = f"{invoice_number_prefix_for(invoice.invoice_date, invoice.document_type)}{suffix}"
     statement = select(Invoice.id).where(Invoice.invoice_number == invoice_number)
     if invoice.id is not None:
         statement = statement.where(Invoice.id != invoice.id)
@@ -557,7 +558,7 @@ def _calculation_from_inputs(db: Session, branch: Branch, payload, *, persist_ma
             branch.id,
             line,
             persist_manual_products=persist_manual_products,
-            require_manufacturer=payload.document_type == "reagent",
+            require_manufacturer=payload.document_type in {"reagent", "credit_note"},
         )
         for line in payload.lines
     ]
@@ -872,8 +873,8 @@ def _apply_update_payload(db: Session, invoice: Invoice, current_user: User, pay
     if "invoice_number_suffix" in fields_set:
         _set_manual_invoice_number(db, invoice, payload.invoice_number_suffix)
     elif "invoice_date" in fields_set and invoice.invoice_number is not None:
-        previous_prefix = invoice_number_prefix_for(previous_invoice_date)
-        if previous_prefix != invoice_number_prefix_for(invoice.invoice_date):
+        previous_prefix = invoice_number_prefix_for(previous_invoice_date, invoice.document_type)
+        if previous_prefix != invoice_number_prefix_for(invoice.invoice_date, invoice.document_type):
             if not invoice.invoice_number.startswith(previous_prefix):
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Enter the invoice number when changing the financial year")
             _set_manual_invoice_number(db, invoice, invoice.invoice_number[len(previous_prefix):])
@@ -1125,7 +1126,7 @@ def list_invoices(
     current_user: Annotated[User, Depends(get_current_active_user)],
     branch_id: int | None = None,
     limit: int = Query(100, ge=1, le=500),
-    document_type: Literal["sales", "reagent"] = Query("sales"),
+    document_type: Literal["sales", "reagent", "credit_note"] = Query("sales"),
 ) -> list[Invoice]:
     statement = select(Invoice).options(selectinload(Invoice.lines)).where(Invoice.document_type == document_type).order_by(Invoice.id)
     if branch_id is not None:
@@ -1146,7 +1147,7 @@ def invoice_register(
     q: str | None = None,
     status_filter: Annotated[InvoiceStatus | None, Query(alias="status")] = None,
     sort: str = "updated_desc",
-    document_type: Literal["sales", "reagent"] = Query("sales"),
+    document_type: Literal["sales", "reagent", "credit_note"] = Query("sales"),
     date_from: str | None = Query(None, pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
     date_to: str | None = Query(None, pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
 ) -> RegisterPage:
@@ -1218,7 +1219,7 @@ def update_invoice(
     invoice = _get_invoice(db, current_user, invoice_id, for_update=True)
     _require_version(invoice, request.expected_version)
     invoice_number = (
-        f"{invoice_number_prefix_for(request.invoice_date or invoice.invoice_date)}{request.invoice_number_suffix}"
+        f"{invoice_number_prefix_for(request.invoice_date or invoice.invoice_date, invoice.document_type)}{request.invoice_number_suffix}"
         if request.invoice_number_suffix is not None else invoice.invoice_number
     )
     try:

@@ -224,7 +224,7 @@ function requestErrorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
 
-export function InvoiceEntryPage({ documentType }: { documentType: "sales" | "reagent" }) {
+export function InvoiceEntryPage({ documentType }: { documentType: Invoice["document_type"] }) {
   const authStatus = useAuthStatus();
   const { session } = useSessionState();
   const [epoch, setEpoch] = useState(0);
@@ -242,13 +242,15 @@ export function InvoiceEntryPage({ documentType }: { documentType: "sales" | "re
   </AuthGateStatus>;
 }
 
-function RetainedInvoiceEntry({ userId, ...props }: { userId: number; documentType: "sales" | "reagent"; authStatus: AuthStatus; onStartNew: () => void }) {
+function RetainedInvoiceEntry({ userId, ...props }: { userId: number; documentType: Invoice["document_type"]; authStatus: AuthStatus; onStartNew: () => void }) {
   const [entry] = useState(() => getInvoiceEntrySession(userId, props.documentType));
   return <InvoiceEntryForm {...props} entry={entry} />;
 }
 
-function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { documentType: "sales" | "reagent"; authStatus: AuthStatus; entry: InvoiceEntrySession; onStartNew: () => void }) {
-  const isReagent = documentType === "reagent";
+function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { documentType: Invoice["document_type"]; authStatus: AuthStatus; entry: InvoiceEntrySession; onStartNew: () => void }) {
+  const isCreditNote = documentType === "credit_note";
+  const isReagent = documentType === "reagent" || isCreditNote;
+  const documentLabel = isCreditNote ? "credit note" : isReagent ? "reagent bill" : "sales invoice";
   const returning = useRef(entry.has("entryMode")).current;
   const [entryMode, setEntryMode] = useInvoiceEntryValue<EntryMode>(entry, "entryMode", "manual");
   const [sellerProfiles, setSellerProfiles] = useState<NonNullable<SellerProfileResponse["seller_profile"]>[]>([]);
@@ -357,7 +359,7 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
         if (loadErrors.length) setError(`Some billing data could not load. ${loadErrors.join(" ")}`);
       } catch (requestError) {
         if (cancelled || !entry.active) return;
-        setError(requestErrorMessage(requestError, `Unable to load ${isReagent ? "reagent bill" : "sales invoice"} data.`));
+        setError(requestErrorMessage(requestError, `Unable to load ${documentLabel} data.`));
       } finally {
         if (!cancelled && entry.active) setIsBillingDataLoaded(true);
       }
@@ -667,7 +669,7 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
       setEntryMode("manual"); setBuyerCustomerId(String(invoice.buyer_customer_id)); setSelectedBuyerSnapshot(null);
       setManualBuyer(buyer); setManualConsignee(partyFromInvoice(invoice, "consignee")); setManualConsigneeSameAsBuyer(false);
       setSelectedSupplier(invoice.editingSupplier ?? null); setLoadedInvoice(invoice);
-      setInvoiceDate(invoice.invoice_date); setInvoiceNumberSuffix(invoice.invoice_number?.replace(/^PBPL\/\d{4}-\d{2}\//, "") ?? "");
+      setInvoiceDate(invoice.invoice_date); setInvoiceNumberSuffix(invoice.invoice_number?.replace(/^PBPL\/(?:CN\/)?\d{4}-\d{2}\//, "") ?? "");
       setDeliveryNoteDate(invoice.delivery_note_date ?? ""); setPlaceOfSupplyStateCode(invoice.place_of_supply_state_code);
       setPoNumber(invoice.po_number ?? ""); setPaymentTerms(invoice.payment_terms ?? ""); setTransportMode(invoice.transport_mode ?? "");
       setVehicleNumber(invoice.vehicle_number ?? ""); setVehicleType(invoice.vehicle_type ?? ""); setLrNumber(invoice.lr_number ?? "");
@@ -684,8 +686,8 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
   return (
       <AppShell>
         <div className="workspace-page">
-          <PageHeader icon={isReagent ? "reagent" : "sales-invoice"} eyebrow={isReagent ? "Reagent workflow" : "Sales workflow"} title={isReagent ? "Reagent bill entry" : "Sales invoice entry"} description={`Create a ${isReagent ? "reagent bill" : "clean invoice"} for customers and vendors. Start with manual entry, or choose saved details when you are ready.${activeSellerProfile ? ` Seller profile: ${activeSellerProfile.name}.` : ""}`}
-            action={<Link className="ui-button" href={`/bill-registers/${documentType}`}><AppIcon name={isReagent ? "reagent" : "sales-invoice"} size={18} />{isReagent ? "Reagent bills" : "Sales invoices"}</Link>} />
+          <PageHeader icon={isReagent ? "reagent" : "sales-invoice"} eyebrow={isCreditNote ? "Credit Note workflow" : isReagent ? "Reagent workflow" : "Sales workflow"} title={isCreditNote ? "Credit Note entry" : isReagent ? "Reagent bill entry" : "Sales invoice entry"} description={`Create a ${isCreditNote ? "credit note" : isReagent ? "reagent bill" : "clean invoice"} for customers and vendors. Start with manual entry, or choose saved details when you are ready.${activeSellerProfile ? ` Seller profile: ${activeSellerProfile.name}.` : ""}`}
+            action={<Link className="ui-button" href={isCreditNote ? "/bill-registers/credit-notes" : `/bill-registers/${documentType}`}><AppIcon name={isReagent ? "reagent" : "sales-invoice"} size={18} />{isCreditNote ? "Credit notes" : isReagent ? "Reagent bills" : "Sales invoices"}</Link>} />
 
           {isBillingDataLoaded && !sellerProfileReady && (
             <div className="ui-alert mt-6 border-amber-200 bg-amber-50 text-amber-900">
@@ -807,11 +809,11 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
                     </div>
                   </>
                 )}
-                <label className="text-xs font-semibold text-slate-500">Invoice date<input className={inputClass} onChange={(event) => setInvoiceDate(event.target.value)} required type="date" value={invoiceDate} /></label>
+                <label className="text-xs font-semibold text-slate-500">{isCreditNote ? "Credit Note date" : "Invoice date"}<input className={inputClass} onChange={(event) => setInvoiceDate(event.target.value)} required type="date" value={invoiceDate} /></label>
                 <div className="text-xs font-semibold text-slate-500 sm:col-span-2">
-                  <label htmlFor="invoice-number">Invoice No.</label>
+                  <label htmlFor="invoice-number">{isCreditNote ? "Credit Note No." : "Invoice No."}</label>
                   <div className="mt-2 flex items-center rounded-xl border border-slate-200 bg-white focus-within:border-[#147c86] focus-within:ring-2 focus-within:ring-[#147c86]/15">
-                    <span className="shrink-0 border-r border-slate-200 px-3 py-3 text-slate-600" data-testid="invoice-number-prefix">{invoiceNumberPrefix(invoiceDate)}</span>
+                    <span className="shrink-0 border-r border-slate-200 px-3 py-3 text-slate-600" data-testid="invoice-number-prefix">{invoiceNumberPrefix(invoiceDate, documentType)}</span>
                     <input
                       aria-describedby={invoiceNumberError ? "invoice-number-error" : undefined}
                       aria-invalid={Boolean(invoiceNumberError)}
@@ -822,7 +824,7 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
                       onChange={(event) => { setInvoiceNumberSuffix(event.target.value.toUpperCase()); setInvoiceNumberError(null); }}
                       onInvalid={(event) => { event.preventDefault(); setInvoiceNumberError("Enter an invoice number using 1–30 letters, digits, hyphens or slashes."); event.currentTarget.focus(); }}
                       pattern="[A-Z0-9][A-Z0-9/-]{0,29}"
-                      placeholder="Enter invoice number"
+                      placeholder={isCreditNote ? "Enter credit note number" : "Enter invoice number"}
                       required
                       value={invoiceNumberSuffix}
                     />
@@ -846,15 +848,15 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
               </div>
 
               <div className="mt-7 space-y-4">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
                   <h2 className="text-lg font-semibold tracking-tight text-ink">Line items</h2>
-                  <button className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:text-ink" onClick={() => setLines((current) => [...current, initialLine(Date.now(), isReagent ? "kg" : "KG")])} type="button">Add line</button>
+                  <button className="ui-button px-3 py-2 text-xs" onClick={() => setLines((current) => [...current, initialLine(Date.now(), isReagent ? "kg" : "KG")])} type="button">Add line</button>
                 </div>
                 {lines.map((line, index) => (
                   <div key={line.key} className="rounded-2xl border border-slate-100 p-4">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <p className="text-sm font-semibold text-ink">Line {index + 1}</p>
-                      {lines.length > 1 && <button className="text-xs font-semibold text-[#b46b22]" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} type="button">Remove</button>}
+                      {lines.length > 1 && <button className="ui-button px-3 py-2 text-xs text-[#b46b22]" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} type="button">Remove</button>}
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                       {isReagent && (
@@ -898,7 +900,7 @@ function InvoiceEntryForm({ documentType, authStatus, entry, onStartNew }: { doc
               </div>
 
               <button className="mt-6 w-full rounded-xl bg-ink px-4 py-3 text-sm font-semibold text-white hover:bg-[#132f40] disabled:cursor-not-allowed disabled:opacity-60" disabled={isSaving || !isBillingDataLoaded || !sellerProfileReady} type="submit">
-                {isSaving ? "Saving draft…" : !sellerProfileReady ? "Set up Seller/GST profile first" : `Save ${isReagent ? "reagent bill" : "sales invoice"} draft`}
+                {isSaving ? "Saving draft…" : !sellerProfileReady ? "Set up Seller/GST profile first" : `Save ${documentLabel} draft`}
               </button>
               </fieldset>
             </form>

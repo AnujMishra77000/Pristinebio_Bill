@@ -265,12 +265,12 @@
       </div>
 
       <div class="final-zone">
-        {% if invoice.terms or invoice.document_title in ("Tax Invoice", "Purchase Order") %}
+        {% if invoice.terms or invoice.document_title in ("Tax Invoice", "Purchase Order", "Credit Note") %}
         <div class="terms">
           <h2 class="terms-heading">Terms and Conditions:</h2>
           <ol class="terms-list">
             {% for term in invoice.terms %}<li>{{ term }}</li>{% endfor %}
-            {% if invoice.document_title in ("Tax Invoice", "Purchase Order") %}
+            {% if invoice.document_title in ("Tax Invoice", "Purchase Order", "Credit Note") %}
             <li>All payments must be made via bank transfer only. Cash payments are not accepted.</li>
             <li>The goods once sold can not be returned and/or exchanged.</li>
             <li>All the Goods are to be checked at our works. The company is not responsible for any loss of the goods during the transport.</li>

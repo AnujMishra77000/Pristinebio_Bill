@@ -22,7 +22,7 @@ export function AuthLayout({ eyebrow, title, description, children, footer }: { 
         </div>
         <p className="relative hidden text-xs text-white/60 lg:block">Controlled access. Clear accountability.</p>
       </aside>
-      <div className="flex min-w-0 items-center justify-center px-5 py-10 sm:px-10 sm:py-14">
+      <div className="flex min-w-0 items-center justify-center px-4 py-6 sm:px-10 sm:py-14">
         <div className="w-full max-w-lg">
           <header className="mb-8">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-peacock">{eyebrow}</p>

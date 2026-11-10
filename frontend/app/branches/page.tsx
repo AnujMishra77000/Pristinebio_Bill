@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 import { AppShell } from "@/app/components/AppShell";
 import { AuthGateStatus, useAuthStatus } from "@/app/components/AuthGate";
@@ -312,8 +313,8 @@ export default function SellerProfilePage() {
                 </div>
 
                 <div className="mt-7 rounded-2xl border border-line bg-warm p-5">
-                  <h3 className="text-sm font-semibold text-peacock-deep">Default invoice bank details</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate">Used on new invoices when a separate bank account is not selected.</p>
+                  <h3 className="text-sm font-semibold text-peacock-deep">Bank details fallback</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate">New bills and purchase orders use the default in <Link className="font-semibold text-peacock underline" href="/bank-accounts">Bank accounts</Link>. These fields are used only when no active default account is set.</p>
                   <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                     {sellerField("bank_name", "Bank name")}
                     {sellerField("bank_branch_name", "Bank branch")}

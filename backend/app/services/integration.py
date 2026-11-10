@@ -71,6 +71,8 @@ def _get_invoice(db: Session, user: User, request: IntegrationJobCreate) -> Invo
     if invoice is None:
         raise HTTPException(404, "Invoice not found")
     ensure_branch_access(user, invoice.branch_id)
+    if invoice.document_type == "credit_note":
+        raise HTTPException(422, "This is a document-only Credit Note and cannot be submitted to an external integration")
     if request.branch_id is not None and request.branch_id != invoice.branch_id:
         raise HTTPException(422, "Invoice and integration branch do not match")
     if invoice.status not in {InvoiceStatus.APPROVED, InvoiceStatus.PDF_GENERATED}:

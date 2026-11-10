@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
 import { getSessionState, SESSION_CHANGED_EVENT } from "./api";
 
-export type InvoiceKind = "sales" | "reagent" | "purchase" | "reagent-purchase";
+export type InvoiceKind = "sales" | "reagent" | "credit_note" | "purchase" | "reagent-purchase";
 export const INVOICE_ENTRY_INVALIDATED_EVENT = "pristine-bio-billing.invoice-entry-invalidated";
 const entries = new Map<InvoiceKind, InvoiceEntrySession>();
 let ownerId: number | null = null;

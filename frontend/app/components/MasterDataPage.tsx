@@ -39,6 +39,7 @@ type MasterDataPageProps = {
   recordActions?: {
     activeField?: string;
     defaultField?: string;
+    defaultLabel?: string;
     allowDelete?: boolean;
   };
 };
@@ -383,7 +384,7 @@ export function MasterDataPage({
                 <button className="ui-button" type="button" disabled={isLoading} onClick={() => void loadRecords()}>{isLoading ? "Loading…" : "Refresh"}</button>
               </div>
               {loadError && <p className="ui-alert mb-4" role="alert">{loadError} Use Refresh to try again.</p>}
-              <div className="overflow-x-auto">
+              <div className="ui-table-wrap" role="region" aria-label={`${title} table — scroll horizontally for all columns`} tabIndex={0}>
                 <table className="min-w-full divide-y divide-line text-left text-sm">
                   <thead className="bg-warm text-xs font-semibold uppercase tracking-wider text-slate">
                     <tr>
@@ -433,7 +434,7 @@ export function MasterDataPage({
                                     <button
                                       className="ui-button px-3 py-2 text-xs"
                                       type="button"
-                                      onClick={() => void updateRecord(record.id as number, { [recordActions.defaultField as string]: false }, "Default supplier cleared.")}
+                                      onClick={() => void updateRecord(record.id as number, { [recordActions.defaultField as string]: false }, `Default ${recordActions.defaultLabel ?? "supplier"} cleared.`)}
                                     >
                                       Clear default
                                     </button>
@@ -441,7 +442,7 @@ export function MasterDataPage({
                                     <button
                                       className="ui-button px-3 py-2 text-xs"
                                       type="button"
-                                      onClick={() => void updateRecord(record.id as number, { [recordActions.defaultField as string]: true }, "Default supplier updated.")}
+                                      onClick={() => void updateRecord(record.id as number, { [recordActions.defaultField as string]: true }, `Default ${recordActions.defaultLabel ?? "supplier"} updated.`)}
                                     >
                                       Set default
                                     </button>

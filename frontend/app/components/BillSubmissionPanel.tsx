@@ -40,7 +40,7 @@ export function BillSubmissionPanel({ submission, ready, documentNumber }: { sub
     {!submission.finalReady && <p className="mt-3 text-xs text-slate">Download and Print unlock after confirmation and required approval. Staff and creator-Managers cannot approve their own bills.</p>}
     {submission.review && <div className="mt-5 overflow-hidden rounded-xl border border-line bg-warm">
       <p className="border-b border-line px-4 py-2 text-xs font-semibold text-ink">{submission.review.final ? "Confirmed PDF" : "Draft PDF · not finalized"}</p>
-      <iframe key={submission.review.url} className="block h-[75vh] min-h-[420px] w-full border-0" data-ready={submission.frameReady} ref={submission.frameRef} onLoad={() => submission.frameLoaded(submission.review!.url)} title="Bill PDF preview" src={`${submission.review.url}#toolbar=0`} />
+      <iframe key={submission.review.url} className="bill-pdf-frame border-0" data-ready={submission.frameReady} ref={submission.frameRef} onLoad={() => submission.frameLoaded(submission.review!.url)} title="Bill PDF preview" src={`${submission.review.url}#toolbar=0`} />
     </div>}
   </section>;
 }

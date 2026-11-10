@@ -49,7 +49,7 @@ a {
   button:not(:disabled), summary { cursor: pointer; }
   button:disabled { cursor: not-allowed; opacity: .55; }
   :focus-visible { outline: 3px solid var(--emerald); outline-offset: 3px; }
-  input, select, textarea { min-width: 0; max-width: 100%; }
+  input, select, textarea, fieldset, label { min-width: 0; max-width: 100%; }
   input[type="checkbox"], input[type="radio"] { accent-color: var(--emerald); }
   input:read-only, textarea:read-only { background-color: #f2f6f8; }
   input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: .65; }
@@ -59,8 +59,8 @@ a {
 
 @layer components {
   .workspace-page { @apply mx-auto w-full max-w-[1680px] px-4 py-6 sm:px-7 lg:px-9 lg:py-8; }
-  .ui-panel { @apply min-w-0 rounded-2xl border border-line bg-white p-5 shadow-panel sm:p-6; }
-  .ui-button, .ui-button-primary { @apply inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-50; }
+  .ui-panel { @apply min-w-0 rounded-2xl border border-line bg-white p-4 shadow-panel sm:p-6; }
+  .ui-button, .ui-button-primary { @apply inline-flex min-h-11 max-w-full shrink-0 items-center justify-center gap-2 whitespace-normal rounded-xl border px-4 py-2 text-center text-sm font-semibold transition-colors disabled:pointer-events-none disabled:opacity-50; }
   .ui-button { @apply border-line bg-white text-ink hover:border-emerald hover:bg-warm-green; }
   .ui-button-primary { @apply border-transparent bg-emerald text-white hover:bg-peacock; }
   .ui-input { @apply mt-1.5 block min-h-11 w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm font-normal text-ink outline-none transition-colors placeholder:text-slate focus:border-emerald focus:ring-2 focus:ring-emerald/15; }
@@ -76,7 +76,7 @@ a {
   .ui-field [aria-invalid="true"] { @apply border-red-400 bg-red-50/40 focus:ring-red-200; }
   .ui-field:has([required]) > .ui-field-label::after { content: " *"; @apply text-emerald; }
   .ui-field:has(textarea) { align-self: start; }
-  .ui-table-wrap { @apply max-w-full overflow-x-auto overscroll-x-contain; }
+  .ui-table-wrap { @apply min-w-0 max-w-full overflow-x-auto overscroll-x-contain; }
   .ui-table { @apply w-full text-left text-sm; }
   .ui-table thead { @apply border-y border-line bg-warm text-[10px] uppercase tracking-wider text-slate; }
   .ui-table th { @apply px-4 py-3 font-semibold; }
@@ -102,9 +102,20 @@ a {
 }
 
 .explore-dialog::backdrop { background: rgba(19, 47, 64, .42); backdrop-filter: blur(5px); }
+.explore-dialog[open] { display: flex; flex-direction: column; }
+.explore-dialog-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.bill-pdf-frame { display: block; width: 100%; height: clamp(260px, 70dvh, 900px); min-width: 0; }
 
 @media (max-width: 640px) {
   .explore-dialog { width: calc(100% - 1rem); max-height: calc(100dvh - 1rem); border-radius: 20px; }
+}
+
+@media (max-width: 767px), (pointer: coarse) {
+  /* Keep the original content and browser zoom controls; enlarge touch targets. */
+  button, a.ui-button, a.ui-button-primary, nav[aria-label="Primary navigation"] a { min-height: 44px; }
+  button { min-width: 44px; }
+  input:not([type="checkbox"]):not([type="radio"]), select[class], textarea[class] { font-size: 16px; }
+  label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -83,7 +83,7 @@ export default function ApprovalsPage() {
         <span className="text-xs text-slate">Page {corrections.page}</span>
         <button className="ui-button" type="button" disabled={correctionBusy || corrections.page * corrections.page_size >= corrections.total} onClick={() => void loadCorrections(corrections.page + 1)}>Next corrections</button></div>
     </section>}
-    <section className="mt-6 grid gap-6 xl:grid-cols-2"><Queue title="Sales invoices" empty="No invoice approvals are waiting." items={invoices} type="invoice" busy={busy} onApprove={approve} onReturn={returnInvoice} /><Queue title="Purchase orders" empty="No purchase-order approvals are waiting." items={purchaseOrders} type="purchase-order" busy={busy} onApprove={approve} /></section>
+    <section className="mt-6 grid gap-6 xl:grid-cols-2"><Queue title="Invoices and credit notes" empty="No invoice or credit-note approvals are waiting." items={invoices} type="invoice" busy={busy} onApprove={approve} onReturn={returnInvoice} /><Queue title="Purchase orders" empty="No purchase-order approvals are waiting." items={purchaseOrders} type="purchase-order" busy={busy} onApprove={approve} /></section>
   </main></AppShell></AuthGateStatus>;
 }
 
@@ -97,6 +97,6 @@ function ApprovalCard({ item, type, busy, onApprove, onReturn }: { item: Invoice
   const po = type === "purchase-order" ? item as PurchaseOrder : null;
   const label = invoice ? invoice.invoice_number ?? `Draft #${invoice.id}` : po!.purchase_order_number;
   const party = invoice ? invoice.buyer_name : po!.supplier_name;
-  const detailsHref = po?.document_type === "reagent" ? `/reagent-purchase-orders?order=${po.id}` : type === "invoice" ? "/invoices" : "/purchase-orders";
+  const detailsHref = invoice ? `${invoice.document_type === "credit_note" ? "/credit-notes" : invoice.document_type === "reagent" ? "/reagent-bills" : "/invoices"}?invoice=${invoice.id}` : po?.document_type === "reagent" ? `/reagent-purchase-orders?order=${po.id}` : "/purchase-orders";
   return <article className="rounded-xl border border-line bg-warm/40 p-4"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="font-semibold text-ink">{label}</p><p className="mt-1 text-sm text-slate">{party} · ₹{item.final_total}</p><p className="mt-1 text-xs text-slate">Submitted revision {item.submitted_revision ?? item.version}</p></div><div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{onReturn && <><label className="min-w-48 flex-1"><span className="sr-only">Correction reason for {label}</span><input aria-label={`Correction reason for ${label}`} className="ui-input mt-0" onChange={(event) => setReason(event.target.value)} placeholder="Correction reason" value={reason} /></label><button className="ui-button border-amber-200 bg-amber-50 text-amber-900" disabled={busy || !reason.trim()} onClick={() => void onReturn(reason.trim())} type="button">Return</button></>}<Link className="ui-button" href={detailsHref}>Open details</Link><button className="ui-button-primary" disabled={busy} onClick={() => void onApprove()} type="button">{busy ? "Working…" : "Approve"}</button></div></div></article>;
 }

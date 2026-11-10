@@ -1,5 +1,13 @@
 # Approved reference invoice map
 
+## Authorized Credit Note Reagent Bill reuse (corrected 2026-10-26)
+
+The client's internal, document-only Credit Note uses the current Reagent Bill fields and layout, not the Sales Invoice line format and not a newly inferred accounting format. Version `a4-credit-note-v2` retains Credit Note title, number/date labels and computer-generated footer while using Reagent Bill product/manufacturer/article/Pack/Size/unit/discount/GST presentation, buyer/consignee contacts, tax/quantity/bank/terms/signature sections, four copies, fixed sections and maximum-four-product physical pages. Its separate number series is `PBPL/CN/{financial year}/`. Shared CSS, columns, fonts and logos are reused; historical stored PDFs are not regenerated. This is an authorized later document extension, not a claim that the original reference contained Credit Notes.
+
+## Authorized Reagent Bill overflow compaction (2026-10-16)
+
+The client's `invoices-73.pdf` is defect evidence, not a new layout reference: it contains sixteen A4 pages, with the first copy distributing six products 3/1/1/1 and leaving most continuation item bodies empty. Visually inspected all four pages of that copy and extracted its text. The requested correction groups consecutive displaced products together when the existing complete page can accommodate them, retaining at most four products per page. A matching six-product regression now uses 3/3 per copy. Quantity/tax/final-total and amount-in-words values remain on the final product page; identity/party/table headings/bank/terms/signature/footer repeat. Reagent Bill version is `a4-reagent-bill-v14`. No columns, fonts, colors, CSS/HTML, other bill formats or historical PDF files are changed.
+
 ## Authorized single-copy Purchase Orders (2026-10-08)
 
 The client requests one complete copy for **Domestic Purchase Orders and Reagent Purchase Orders only**. Both use the `Purchase Order` copy label. More than four products continue onto additional pages within that one copy, with calculations only on its final product page. Sales Invoices and Reagent Bills continue to generate Original, Duplicate, Triplicate and Extra copies. This supersedes previous four-copy Reagent PO extensions, not the original reference observations. Reagent PO version is `a4-reagent-purchase-order-v13`; Domestic PO remains `a4-purchase-order-v8`. Rendering layout and historical stored PDFs are unchanged.

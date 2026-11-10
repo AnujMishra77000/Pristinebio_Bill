@@ -126,7 +126,7 @@ class InvoiceCustomerInput(BaseModel):
 class InvoiceBasePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    document_type: Literal["sales", "reagent"] = "sales"
+    document_type: Literal["sales", "reagent", "credit_note"] = "sales"
     branch_id: int | None = None
     buyer_customer_id: int | None = None
     buyer: InvoiceCustomerInput | None = None
@@ -164,7 +164,7 @@ class InvoiceBasePayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_reagent_units(self):
-        if self.document_type == "reagent":
+        if self.document_type in {"reagent", "credit_note"}:
             for index, line in enumerate(self.lines, start=1):
                 if line.unit is not None and canonical_unit(line.unit) is None:
                     raise ValueError(f"Line {index} unit must be one of: g, kg, mg, µg, mL, L, t")
@@ -392,7 +392,7 @@ class InvoiceRead(BaseModel):
     supplier_id: int | None
     transporter_id: int | None
     terms_and_conditions_id: int | None
-    document_type: Literal["sales", "reagent"]
+    document_type: Literal["sales", "reagent", "credit_note"]
     status: InvoiceStatus
     version: int
     submitted_revision: int | None

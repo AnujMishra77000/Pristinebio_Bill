@@ -27,6 +27,12 @@ const documentTypes = [
     icon: "reagent-purchase-order" as const,
     description: "Order reagents with manufacturers, article numbers and reagent pricing.",
   },
+  {
+    title: "Credit Note",
+    href: "/credit-notes",
+    icon: "sales-invoice" as const,
+    description: "Create a credit note with the Sales Invoice entry and PDF workflow.",
+  },
 ];
 
 export function BillingDocumentActions() {

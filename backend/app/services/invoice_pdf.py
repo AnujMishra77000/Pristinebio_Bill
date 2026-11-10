@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 if TYPE_CHECKING:
+    from playwright.sync_api import Page
     from app.models.company import Branch, Company
     from app.models.invoice import Invoice
     from app.models.master_records import BankAccount, TermsAndConditions, Transporter
@@ -19,8 +20,9 @@ if TYPE_CHECKING:
 
 
 TEMPLATE_VERSION = "a4-invoice-v11"
+CREDIT_NOTE_TEMPLATE_VERSION = "a4-credit-note-v2"
 PURCHASE_ORDER_TEMPLATE_VERSION = "a4-purchase-order-v10"
-REAGENT_BILL_TEMPLATE_VERSION = "a4-reagent-bill-v13"
+REAGENT_BILL_TEMPLATE_VERSION = "a4-reagent-bill-v14"
 REAGENT_PURCHASE_ORDER_TEMPLATE_VERSION = "a4-reagent-purchase-order-v13"
 COPY_LABELS = (
     "Original for Recipient",
@@ -247,6 +249,8 @@ def build_invoice_context(
     terms: TermsAndConditions | None = None,
     generated_at: datetime,
 ) -> InvoicePdfContext:
+    is_credit_note = invoice.document_type == "credit_note"
+    is_reagent_document = invoice.document_type in {"reagent", "credit_note"}
     is_sales_invoice = (invoice.document_type or "sales") == "sales"
     branch_address = _address_lines(
         invoice.seller_address_line1 or (branch.address_line1 if branch else None),
@@ -312,7 +316,7 @@ def build_invoice_context(
             line
             for line in (
                 f"Mode of Shipment: {invoice.transport_mode}" if invoice.transport_mode else None,
-                f"Vehicle No: {invoice.vehicle_number}" if invoice.vehicle_number and invoice.document_type != "reagent" and not is_sales_invoice else None,
+                f"Vehicle No: {invoice.vehicle_number}" if invoice.vehicle_number and not is_reagent_document and not is_sales_invoice else None,
                 f"Vehicle Type: {invoice.vehicle_type}" if invoice.vehicle_type else None,
                 f"LR/Docket No.: {invoice.lr_number}" if invoice.lr_number and not is_sales_invoice else None,
                 f"Trans Doc Date: {format_date(invoice.lr_date)}" if invoice.lr_date else None,
@@ -379,12 +383,12 @@ def build_invoice_context(
             product_name=getattr(line, "product_name", None) or line.description,
             manufacturer_name=(
                 getattr(line, "manufacturer_name", None)
-                if invoice.document_type == "reagent"
+                if is_reagent_document
                 else None
             ),
             manufacturer_code=getattr(line, "manufacturer_code", None),
             article_no=getattr(line, "part_no", None) or getattr(line, "manufacturer_product_code", None),
-            pack_size=getattr(line, "pack_size", None) if invoice.document_type == "reagent" else None,
+            pack_size=getattr(line, "pack_size", None) if is_reagent_document else None,
             hsn_sac=line.hsn_sac,
             quantity=line.quantity,
             unit=line.unit,
@@ -439,8 +443,13 @@ def build_invoice_context(
         signed_by=seller_name,
         generated_at=generated_at,
         bank_detail_rows=bank_detail_rows,
-        document_type=invoice.document_type,
-        template_version=REAGENT_BILL_TEMPLATE_VERSION if invoice.document_type == "reagent" else TEMPLATE_VERSION,
+        # Credit Notes retain their own identity while using the Reagent Bill layout.
+        document_type="reagent" if is_credit_note else invoice.document_type,
+        document_title="Credit Note" if is_credit_note else "Tax Invoice",
+        document_number_label="Credit Note No" if is_credit_note else "Invoice No",
+        document_date_label="Credit Note Date" if is_credit_note else "Invoice Date",
+        document_footer_label="Credit Note" if is_credit_note else "Tax Invoice",
+        template_version=CREDIT_NOTE_TEMPLATE_VERSION if is_credit_note else REAGENT_BILL_TEMPLATE_VERSION if invoice.document_type == "reagent" else TEMPLATE_VERSION,
     )
 
 
@@ -724,6 +733,96 @@ def _build_paginated_html(
     )
 
 
+def _fit_invoice_pages(
+    page: Page, context: InvoicePdfContext, line_pages: tuple[tuple[PdfLine, ...], ...]
+) -> list[int]:
+    """Measure the complete existing layout; never hide rows or fixed content."""
+    page.set_content(_build_paginated_html(context, line_pages), wait_until="load")
+    page.evaluate("() => document.fonts.ready")
+    page.locator(".invoice-page").evaluate_all("""sheets => {
+        const bodies = sheets.map(s => s.querySelector('.items-table tbody'));
+        const words = sheets.map(s => s.querySelector('.amount-words'));
+        const wordHeight = Math.max(...words.map(n => n.getBoundingClientRect().height));
+        words.forEach(n => n.style.minHeight = `${wordHeight}px`);
+        const preferred = Math.max(...bodies.map(n => n.getBoundingClientRect().height));
+        bodies.forEach(n => n.style.height = 'auto');
+        let natural = Math.max(...bodies.map(n => n.getBoundingClientRect().height));
+        // Use the same table/settlement depth on every product page.
+        // Reclaim empty table space only when unusually tall fixed
+        // content needs it; never shrink or clip a product row.
+        const available = Math.min(...sheets.map((s, i) => {
+            const box = s.getBoundingClientRect();
+            const footer = s.querySelector('.invoice-footer').getBoundingClientRect();
+            const summary = s.querySelector('.summary-zone').getBoundingClientRect();
+            const closing = s.querySelector('.final-zone').getBoundingClientRect();
+            const unused = Math.max(0, closing.top - summary.bottom);
+            return bodies[i].getBoundingClientRect().height + unused + box.bottom - footer.bottom;
+        }));
+        if (natural > available) {
+            // Reagent layouts reserve 17 mm per product by default.
+            // Reclaim only that empty space before moving a product;
+            // align description/amount tax sublines at their real
+            // content height, without changing fonts or text.
+            sheets.forEach(s => s.querySelectorAll('.reagent-items-table tbody tr').forEach(row => {
+                const layouts = [...row.querySelectorAll('.item-description-layout, .item-amount-layout')];
+                layouts.forEach(n => n.style.minHeight = '0');
+                const required = Math.max(0, ...layouts.map(n => n.getBoundingClientRect().height));
+                layouts.forEach(n => n.style.minHeight = `${required}px`);
+            }));
+            natural = Math.max(...bodies.map(n => n.getBoundingClientRect().height));
+        }
+        const height = Math.max(natural, Math.min(preferred, available));
+        bodies.forEach(n => n.style.height = `${height}px`);
+    }""")
+    return page.locator(".invoice-page").evaluate_all("""sheets => sheets.flatMap((sheet, index) => {
+        const box = sheet.getBoundingClientRect();
+        const rect = selector => sheet.querySelector(selector)?.getBoundingClientRect();
+        const items = rect('.items-table');
+        const summary = rect('.summary-zone');
+        const terms = rect('.terms');
+        const signature = rect('.signature');
+        const footer = rect('.invoice-footer');
+        const closing = [terms, signature].filter(Boolean);
+        const spills = [...sheet.querySelectorAll('*')].some(node => {
+            const r = node.getBoundingClientRect();
+            return r.bottom > box.bottom + 1 || r.right > box.right + 1 || r.left < box.left - 1;
+        });
+        const overlaps = summary.top < items.bottom - 1 || closing.some(r =>
+            r.top < summary.bottom - 1 || r.bottom > footer.top + 1);
+        return spills || overlaps ? [index] : [];
+    })""")
+
+
+def _compact_reagent_pages(
+    page: Page, context: InvoicePdfContext, line_pages: tuple[tuple[PdfLine, ...], ...]
+) -> tuple[tuple[PdfLine, ...], ...]:
+    """Fill fitted pages from the next page, preserving order and the four-row cap.
+
+    Each accepted attempt moves one row forward; a page accepts at most three.
+    Rejections advance the page index. Thus there are fewer than four attempts
+    per initial page, with no unbounded fit loop or PDF emission during trials.
+    """
+    index = 0
+    attempted = False
+    while index + 1 < len(line_pages):
+        if len(line_pages[index]) >= 4:
+            index += 1
+            continue
+        current, following = line_pages[index:index + 2]
+        remainder = (following[1:],) if len(following) > 1 else ()
+        candidate = line_pages[:index] + (current + following[:1],) + remainder + line_pages[index + 2:]
+        attempted = True
+        if _fit_invoice_pages(page, context, candidate):
+            index += 1
+        else:
+            line_pages = candidate
+    # A rejected trial leaves its DOM in the browser. Restore the accepted
+    # grouping, including final-page-only totals, before the single PDF call.
+    if attempted and _fit_invoice_pages(page, context, line_pages):
+        raise PdfLayoutError("Bill content cannot fit on A4 with its fixed sections")
+    return line_pages
+
+
 def render_invoice_pdf(context: InvoicePdfContext) -> PdfGenerationResult:
     try:
         from playwright.sync_api import sync_playwright
@@ -740,60 +839,7 @@ def render_invoice_pdf(context: InvoicePdfContext) -> PdfGenerationResult:
             # but fixed bill sections must never spill onto a closing-only sheet.
             # Each split increases page count, which cannot exceed line count.
             for _ in range(max(1, len(context.lines))):
-                page.set_content(_build_paginated_html(context, line_pages), wait_until="load")
-                page.evaluate("() => document.fonts.ready")
-                page.locator(".invoice-page").evaluate_all("""sheets => {
-                    const bodies = sheets.map(s => s.querySelector('.items-table tbody'));
-                    const words = sheets.map(s => s.querySelector('.amount-words'));
-                    const wordHeight = Math.max(...words.map(n => n.getBoundingClientRect().height));
-                    words.forEach(n => n.style.minHeight = `${wordHeight}px`);
-                    const preferred = Math.max(...bodies.map(n => n.getBoundingClientRect().height));
-                    bodies.forEach(n => n.style.height = 'auto');
-                    let natural = Math.max(...bodies.map(n => n.getBoundingClientRect().height));
-                    // Use the same table/settlement depth on every product page.
-                    // Reclaim empty table space only when unusually tall fixed
-                    // content needs it; never shrink or clip a product row.
-                    const available = Math.min(...sheets.map((s, i) => {
-                        const box = s.getBoundingClientRect();
-                        const footer = s.querySelector('.invoice-footer').getBoundingClientRect();
-                        const summary = s.querySelector('.summary-zone').getBoundingClientRect();
-                        const closing = s.querySelector('.final-zone').getBoundingClientRect();
-                        const unused = Math.max(0, closing.top - summary.bottom);
-                        return bodies[i].getBoundingClientRect().height + unused + box.bottom - footer.bottom;
-                    }));
-                    if (natural > available) {
-                        // Reagent layouts reserve 17 mm per product by default.
-                        // Reclaim only that empty space before moving a product;
-                        // align description/amount tax sublines at their real
-                        // content height, without changing fonts or text.
-                        sheets.forEach(s => s.querySelectorAll('.reagent-items-table tbody tr').forEach(row => {
-                            const layouts = [...row.querySelectorAll('.item-description-layout, .item-amount-layout')];
-                            layouts.forEach(n => n.style.minHeight = '0');
-                            const required = Math.max(0, ...layouts.map(n => n.getBoundingClientRect().height));
-                            layouts.forEach(n => n.style.minHeight = `${required}px`);
-                        }));
-                        natural = Math.max(...bodies.map(n => n.getBoundingClientRect().height));
-                    }
-                    const height = Math.max(natural, Math.min(preferred, available));
-                    bodies.forEach(n => n.style.height = `${height}px`);
-                }""")
-                overflowing = page.locator(".invoice-page").evaluate_all("""sheets => sheets.flatMap((sheet, index) => {
-                    const box = sheet.getBoundingClientRect();
-                    const rect = selector => sheet.querySelector(selector)?.getBoundingClientRect();
-                    const items = rect('.items-table');
-                    const summary = rect('.summary-zone');
-                    const terms = rect('.terms');
-                    const signature = rect('.signature');
-                    const footer = rect('.invoice-footer');
-                    const closing = [terms, signature].filter(Boolean);
-                    const spills = [...sheet.querySelectorAll('*')].some(node => {
-                        const r = node.getBoundingClientRect();
-                        return r.bottom > box.bottom + 1 || r.right > box.right + 1 || r.left < box.left - 1;
-                    });
-                    const overlaps = summary.top < items.bottom - 1 || closing.some(r =>
-                        r.top < summary.bottom - 1 || r.bottom > footer.top + 1);
-                    return spills || overlaps ? [index] : [];
-                })""")
+                overflowing = _fit_invoice_pages(page, context, line_pages)
                 if not overflowing:
                     break
                 # Every copy has identical geometry; split each affected product
@@ -815,6 +861,8 @@ def render_invoice_pdf(context: InvoicePdfContext) -> PdfGenerationResult:
                 )
             else:
                 raise PdfLayoutError("Bill content cannot fit on A4 with its fixed sections")
+            if context.template_version in {REAGENT_BILL_TEMPLATE_VERSION, CREDIT_NOTE_TEMPLATE_VERSION} and len(line_pages) > 1:
+                line_pages = _compact_reagent_pages(page, context, line_pages)
             pdf_bytes = page.pdf(
                 format="A4",
                 print_background=True,

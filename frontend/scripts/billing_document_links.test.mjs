@@ -7,7 +7,7 @@ const [actions, billingPage] = await Promise.all([
   readFile(new URL("../app/billing/page.tsx", import.meta.url), "utf8"),
 ]);
 
-test("billing creation links retain all four dedicated destinations", () => {
+test("billing creation links retain existing destinations and add Credit Notes", () => {
   const choices = [...actions.matchAll(/title: "([^"]+)",\s*href: "([^"]+)",\s*icon:/g)]
     .map(([, title, href]) => [title, href]);
 
@@ -16,6 +16,7 @@ test("billing creation links retain all four dedicated destinations", () => {
     ["Purchase Order", "/purchase-orders"],
     ["Reagent Bill", "/reagent-bills"],
     ["Reagent Purchase Order", "/reagent-purchase-orders"],
+    ["Credit Note", "/credit-notes"],
   ]);
   assert.match(actions, /<Link key=\{document\.href\} href=\{document\.href\}/);
   assert.match(billingPage, /<BillingDocumentActions\s*\/>/);

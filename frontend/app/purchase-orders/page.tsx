@@ -421,15 +421,15 @@ function PurchaseOrderForm({ entry, authStatus }: { entry: InvoiceEntrySession; 
               </div>
 
               <div className="mt-7 space-y-4">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
                   <h2 className="text-lg font-semibold tracking-tight text-ink">Raw material lines</h2>
-                  <button className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:text-ink" onClick={() => setLines((current) => [...current, initialLine(Date.now())])} type="button">Add line</button>
+                  <button className="ui-button px-3 py-2 text-xs" onClick={() => setLines((current) => [...current, initialLine(Date.now())])} type="button">Add line</button>
                 </div>
                 {lines.map((line, index) => (
                   <div key={line.key} className="rounded-2xl border border-slate-100 p-4">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <p className="text-sm font-semibold text-ink">Line {index + 1}</p>
-                      {lines.length > 1 && <button className="text-xs font-semibold text-[#b46b22]" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} type="button">Remove</button>}
+                      {lines.length > 1 && <button className="ui-button px-3 py-2 text-xs text-[#b46b22]" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} type="button">Remove</button>}
                     </div>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                       {entryMode === "saved" ? (

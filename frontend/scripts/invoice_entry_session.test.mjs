@@ -24,8 +24,8 @@ beforeEach(async () => {
   sessions = output.exports;
 });
 
-test('all four entry kinds retain fields, version and retry identity independently; completed entries reopen fresh', () => {
-  const entries = ['sales', 'reagent', 'purchase', 'reagent-purchase'].map(kind => {
+test('all five entry kinds retain fields, version and retry identity independently; completed entries reopen fresh', () => {
+  const entries = ['sales', 'reagent', 'purchase', 'reagent-purchase', 'credit_note'].map(kind => {
     const entry = sessions.getInvoiceEntrySession(1, kind);
     entry.write('lines', [{ product_name: kind, quantity: '12.345' }]);
     entry.write('submission.document', { id: 101, version: 3 });
@@ -33,7 +33,7 @@ test('all four entry kinds retain fields, version and retry identity independent
     assert.equal(sessions.getInvoiceEntrySession(1, kind), entry);
     return entry;
   });
-  assert.equal(new Set(entries).size, 4);
+  assert.equal(new Set(entries).size, 5);
   entries[2].write('submission.completed', true);
   const next = sessions.getInvoiceEntrySession(1, 'purchase');
   assert.notEqual(next, entries[2], 'Confirmed work must not reappear as the next unconfirmed entry');
@@ -43,6 +43,7 @@ test('all four entry kinds retain fields, version and retry identity independent
   sessions.discardInvoiceEntrySession(1, 'reagent');
   assert.equal(entries[1].active, false);
   assert.equal(entries[0].read('lines', null)[0].quantity, '12.345');
+  assert.equal(entries[4].read('submission.intent', null).key, 'credit_note-retry');
 });
 
 test('invoice and PO deletion never erase the other family with the same numeric ID', () => {
@@ -61,7 +62,7 @@ test('invoice and PO deletion never erase the other family with the same numeric
 });
 
 test('logout clears every bill type and prevents late responses from restoring private work', () => {
-  const entries = ['sales', 'reagent', 'purchase', 'reagent-purchase'].map(kind => sessions.getInvoiceEntrySession(1, kind));
+  const entries = ['sales', 'reagent', 'purchase', 'reagent-purchase', 'credit_note'].map(kind => sessions.getInvoiceEntrySession(1, kind));
   entries.forEach(entry => entry.write('private', 'unfinished buyer details'));
   auth = { session: null, explicitlyLoggedOut: true };
   window.dispatchEvent(new Event('changed'));
