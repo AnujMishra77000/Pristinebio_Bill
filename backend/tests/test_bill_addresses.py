@@ -265,7 +265,7 @@ def test_address_pdf_preview_renders_snapshots_without_finalizing(
     pdf_path.write_bytes(response.content)
     info = subprocess.run(["pdfinfo", str(pdf_path)], check=True, capture_output=True, text=True).stdout
     pages = next(int(line.split(":", 1)[1]) for line in info.splitlines() if line.startswith("Pages:"))
-    assert pages == (1 if bill_type == "domestic_oils" else 4)
+    assert pages == (4 if model is Invoice else 1)
     subprocess.run(["pdftoppm", "-scale-to", "1400", "-png", str(pdf_path), str(tmp_path / bill_type)],
                    check=True, capture_output=True)
     assert len(list(tmp_path.glob(f"{bill_type}-*.png"))) == pages

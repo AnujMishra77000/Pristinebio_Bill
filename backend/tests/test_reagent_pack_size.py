@@ -156,8 +156,9 @@ def test_reagent_pack_size_pdf_column_wraps_and_renders_all_copies(client, auth_
             headings = page.locator('.item-heading').first.locator('th').all_inner_texts()
             assert headings == ['Sr. No.', 'Item Description', 'HSN/SAC', 'GST', 'Quantity', 'Pack/Size', 'Rate', 'Disc %', 'Amount']
             cells = page.locator('.item-pack-size')
-            assert cells.count() == item_count * 4
-            assert cells.all_inner_texts().count('500 g') == ((item_count + 1) // 2) * 4
+            copy_count = len(context.copy_labels)
+            assert cells.count() == item_count * copy_count
+            assert cells.all_inner_texts().count('500 g') == ((item_count + 1) // 2) * copy_count
             assert all(cells.evaluate_all('nodes => nodes.map(node => node.scrollWidth <= node.clientWidth + 1)'))
         finally:
             browser.close()
@@ -165,8 +166,8 @@ def test_reagent_pack_size_pdf_column_wraps_and_renders_all_copies(client, auth_
     output.write_bytes(render_invoice_pdf(context).pdf_bytes)
     info = subprocess.run(['pdfinfo', str(output)], capture_output=True, text=True, check=True).stdout
     pages = next(int(line.split(':', 1)[1]) for line in info.splitlines() if line.startswith('Pages:'))
-    assert '(A4)' in info and pages % 4 == 0
+    assert '(A4)' in info and pages % copy_count == 0
     if item_count == 1:
-        assert pages == 4
+        assert pages == copy_count
     subprocess.run(['pdftoppm', '-scale-to', '1400', '-png', str(output), str(output.with_suffix(''))], check=True, capture_output=True)
     assert len(list(tmp_path.glob('*.png'))) == pages

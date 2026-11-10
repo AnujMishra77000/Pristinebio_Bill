@@ -1,5 +1,13 @@
 # Project status
 
+## GitHub quality-gate repair — implemented and verified (2026-11-10)
+
+- Fixed the backend CI environment by installing the lockfile-matched Playwright Chromium and Linux dependencies before migrations/tests. The previous run had 101 renderer failures because the browser executable was absent; no PDF renderer, layout, financial calculation or document behavior changed.
+- Resolved the remaining six pre-existing backend failures without changing approved behavior: imported the missing `UserRole` used by administrative MFA reset, aligned the obsolete privileged-login test with the active MFA-disabled policy, and aligned old PO tests with the approved single-copy output and current template-version contract. The six targeted regressions pass with real Chromium.
+- Refreshed the backend security lock within its existing package families: `certifi` 2026.10.23, `cryptography` 50.0.2, `dnspython` 2.9.2, PyJWT 2.15.1 and pytest 9.2.0. `pip-audit -r requirements.lock` reports no known vulnerabilities; 63 authentication/security tests and the six repaired regressions pass on the updated lock.
+- Updated the frontend within the existing Next.js 15.5 line from 15.5.24 to the security-patched 15.5.29 release and refreshed compatible transitive locks. Patched `brace-expansion` to 1.1.21/5.0.12, `sharp` to 0.35.5 and `source-map-js` to 1.2.2. The audit gate now rejects invalid/error reports and reports zero critical and zero unexpected high findings. Its only exception is limited to the two reviewed advisory IDs at Next's nested PostCSS 8.4.31 path; npm remediation for that finding requires a breaking Next.js 16 upgrade.
+- Verification: before the final dependency-only lock refresh, the backend full suite completed with **772 passed, 15 skipped** (only opt-in frontend-integration/disposable-PostgreSQL tests). The focused security and repaired-renderer checks above were then repeated on the refreshed lock. Frontend **71 behavior tests passed**; `npm ci`, lint, type-check and the **32-route production build** passed on Next.js 15.5.29. The exact CI npm policy passed with zero critical/unexpected high findings. No schema migration, application feature, API, billing rule, stored PDF or client data was changed.
+
 ## Bank-account editing and default selection — implemented and verified (2026-10-27)
 
 - Fixed the cause of old bank details on new bills/POs: the Bank Accounts page could only create accounts, and multiple accounts could remain default while billing selected the oldest one. Enabled same-ID **Edit / Update**, **Set default / Clear default**, **Activate / Deactivate**, and a visible active status. Account numbers remain strings, preserving leading zeros. Failed saves retain entered fields and edit mode.

@@ -14,6 +14,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from app.core.config import get_settings
 from app.core.security import create_access_token
 from app.models.authentication import AuthSession, AuthThrottle, MFARecoveryCode, RefreshCredential, SecurityAudit
+from app.models.enums import UserRole
 from app.models.user import User
 
 
