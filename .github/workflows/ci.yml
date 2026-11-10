@@ -35,6 +35,10 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --requirement requirements.lock
       - run: python -m playwright install --with-deps chromium
+      - name: Install PDF inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes poppler-utils
       - run: python -m alembic upgrade head
       - run: python -m pytest -q
       - name: Python dependency audit
