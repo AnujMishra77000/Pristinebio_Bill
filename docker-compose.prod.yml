@@ -1,12 +1,14 @@
 services:
   frontend:
+    restart: unless-stopped
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set the public API URL before building}
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/bill}
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid
@@ -21,11 +23,15 @@ services:
           memory: 512M
 
   backend:
+    restart: unless-stopped
+    init: true
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
     expose:
       - "8000"
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     environment:
       APP_ENVIRONMENT: production
       API_V1_PREFIX: /api/v1
@@ -33,6 +39,7 @@ services:
       REDIS_URL: ${REDIS_URL:?Set the private Redis URL}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Set the HTTPS frontend origin}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set a strong signing secret}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?Set a persistent independent encryption key}
       COOKIE_SECURE: "true"
       PDF_STORAGE_DIR: /app/storage/invoices
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
@@ -61,6 +68,7 @@ services:
           memory: 1G
 
   postgres:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
@@ -81,6 +89,7 @@ services:
           memory: 2G
 
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     volumes:

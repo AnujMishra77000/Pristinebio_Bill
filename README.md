@@ -2,6 +2,10 @@
 
 Single-company chemical/raw-material billing with master records, invoice draft/approval workflow, Decimal calculations and A4 PDFs. Phase 2 adds revocable cookie sessions and audited sensitive permissions. Authenticator MFA is disabled by the current client decision. PDF implementation is unchanged.
 
+## VPS deployment at www.pristinebiopharma.in/bill
+
+Use the [deployment guide](docs/VPS_DEPLOYMENT.md) to serve the complete application at **https://www.pristinebiopharma.in/bill** alongside the existing company website. Generate private production settings with `python3 deploy/create_env.py`, build with `docker-compose.prod.yml`, and include `deploy/nginx/bill.locations.conf` inside the domain's existing HTTPS server. The frontend uses `/bill`; public API/PDF requests use `/bill/api/v1`. The backend retains `/api/v1` internally. No database schema or PDF layout change is required.
+
 ## Internal Credit Notes
 
 Use **Credit Note** on the dashboard/Billing desk or Explore → **Credit notes**. Create at `/credit-notes`; its date-filtered register is `/bill-registers/credit-notes`. It uses the Reagent Bill entry contract: independent product and active manufacturer selection, manufacturer article/code, Pack/Size, supported reagent units, discount percentage, GST breakdown, saved buyer/shipping snapshots, approvals, in-page PDF preview, confirmation, download and printing. Register **Edit** restores saved values; confirmed edits use the existing reasoned correction/reapproval workflow.
@@ -89,17 +93,17 @@ Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1` when running outside
 
 The development `docker-compose.yml` remains the local source-mounted workflow. The production review setup is `docker-compose.prod.yml`: it uses immutable multi-stage images, `npm ci`, a standalone Next.js server, non-root users, no source bind mounts or reloaders, private PostgreSQL/Redis networking, named PDF/database volumes, and explicit health/resource limits. It is not deployed by this repository.
 
-Production frontend API configuration is build-time because `NEXT_PUBLIC_API_BASE_URL` is embedded in the browser bundle. Build with the public HTTPS API URL and rebuild when it changes:
+Production frontend API configuration and `NEXT_PUBLIC_BASE_PATH` are build-time settings. For the requested `/bill` address, follow [the deployment guide](docs/VPS_DEPLOYMENT.md) and generate domain-specific settings:
 
 ```bash
-cp .env.example .env.production
-# Edit .env.production with strong independent secrets, HTTPS origins and private URLs.
+python3 deploy/create_env.py --output .env.production
+# Keep an existing production settings file and credentials on subsequent releases.
 docker compose --env-file .env.production -f docker-compose.prod.yml build
 docker compose --env-file .env.production -f docker-compose.prod.yml run --rm backend /app/scripts/release_migrate.sh
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 ```
 
-Run migrations exactly once per release before starting replicas. The backend image does not run Alembic on application startup. PostgreSQL and Redis have no host ports in the production Compose definition; an HTTPS reverse proxy must expose the configured public frontend/API origin.
+Run migrations exactly once per release before starting replicas. The backend image does not run Alembic on application startup. PostgreSQL and Redis have no host ports; frontend/backend bind only to host loopback for the existing HTTPS Nginx proxy. Production Compose defaults to `/bill`. Local development continues at `/`.
 
 ## Test And Verification Commands
 

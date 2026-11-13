@@ -1,5 +1,9 @@
 import type { User } from "./types";
 
+export function invitationUrl(origin: string, token: string): string {
+  return `${origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/login#invite=${encodeURIComponent(token)}`;
+}
+
 export function normalizePassphrase(value: string): string {
   const normalized = value.normalize("NFC");
   const length = Array.from(normalized).length;

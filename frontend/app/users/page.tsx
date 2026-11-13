@@ -6,6 +6,7 @@ import { AuthGateStatus, useAuthStatus, useSessionState } from "@/app/components
 import { SecurityError, SecurityField, SecuritySection, errorMessage, securityButton } from "@/app/components/SecurityForms";
 import { PageHeader } from "@/app/components/PageHeader";
 import { apiRequest, validateSession } from "@/app/lib/api";
+import { invitationUrl } from "@/app/lib/auth";
 import type { AuthAuditEvent, Branch, CreatedInvitation, Invitation, User, UserRole } from "@/app/lib/types";
 
 type UserEdit = Pick<User, "email" | "full_name" | "role" | "branch_ids" | "is_active">;
@@ -54,7 +55,7 @@ export default function UsersPage() {
     event.preventDefault();
     void action(async () => {
       const result = await apiRequest<CreatedInvitation>("/auth/invitations", { method: "POST", body: JSON.stringify(invite) });
-      setLink(window.location.origin + "/login#invite=" + encodeURIComponent(result.token));
+      setLink(invitationUrl(window.location.origin, result.token));
       setInvite(blankInvite); setMessage("Invitation created. Deliver the one-time link manually.");
     });
   }

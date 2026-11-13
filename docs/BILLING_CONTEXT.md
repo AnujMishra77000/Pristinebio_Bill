@@ -63,6 +63,12 @@ The client's 2026-09-16 request sets newly created or changed account passwords 
 - Pytest and Playwright testing
 - Docker Compose for local and development orchestration
 
+## VPS URL prefix (requested 2026-11-12)
+
+The complete billing application deploys at `https://www.pristinebiopharma.in/bill`, alongside the existing company website at `/`. Set build-time `NEXT_PUBLIC_BASE_PATH=/bill` and `NEXT_PUBLIC_API_BASE_URL=/bill/api/v1`. Next.js prefixes page/navigation/assets; invitation links explicitly use the same prefix. The Nginx include strips `/bill` from API requests only, preserving internal FastAPI `/api/v1` routes, CSRF checks, secure host cookies, PDF downloads and the existing website's root locations. `FRONTEND_ORIGIN` is `https://www.pristinebiopharma.in` without a path. Local development continues at root with an empty base path.
+
+Use `deploy/create_env.py`, `docker-compose.prod.yml`, `deploy/nginx/bill.locations.conf` and `docs/VPS_DEPLOYMENT.md` for installation. No billing calculation, model, schema migration, workflow or PDF-layout change is part of this request. Repository configuration is distinct from activating the application/DNS/HTTPS proxy on a VPS.
+
 ## Internal document-only Credit Notes (corrected 2026-10-26)
 
 The client explicitly requested a system document, **not an accounting/banking Credit Note**. Use the Reagent Bill fields and rules: product and manufacturer remain independent selections, every line requires an active manufacturer and supported reagent unit, and transaction snapshots retain manufacturer name/code, article/code, Pack/Size, discount percentage and GST values. Reuse Decimal calculations, buyer/consignee/seller snapshots, roles, submission/approval, preview/confirmation, audit, retained same-tab work and controlled confirmed corrections. Persist `document_type=credit_note` in the existing invoice domain; its type cannot change through editing. Creation/list/register/detail/workflow/PDF APIs remain under `/api/v1/invoices`, with an explicit type filter for its separate register. No additional accounting fields, original-invoice linkage or financial reversal is implied.

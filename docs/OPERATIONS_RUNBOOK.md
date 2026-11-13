@@ -2,6 +2,8 @@
 
 This is a reviewable operating baseline, not a deployment or a restoration claim. The application is a single-company modular monolith. Validate capacity, recovery targets, secrets, proxy rules, and ownership with the client before production use.
 
+The requested public address is **https://www.pristinebiopharma.in/bill**. Use [the domain-specific VPS guide](VPS_DEPLOYMENT.md), private settings generator and Nginx location snippet for that deployment. Public `/bill/api/v1` requests are proxied to internal `/api/v1` routes; existing `/` website configuration is retained. Both `NEXT_PUBLIC_BASE_PATH` and `NEXT_PUBLIC_API_BASE_URL` must be set before the frontend image build.
+
 ## Release sequence
 
 1. Build immutable images with `docker compose -f docker-compose.prod.yml build`.
