@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.api.v1 import purchase_orders
 from app.models.invoice import InvoiceRevision
 from app.models.master_records import Customer, Product
+from app.services.invoice_pdf import PURCHASE_ORDER_TEMPLATE_VERSION
 
 
 def test_sales_invoice_requires_seller_gst_profile_when_none_is_configured(
@@ -448,7 +449,7 @@ def test_saved_purchase_order_can_generate_previewable_downloadable_pdf(
 
     assert generated.status_code == 200
     assert generated.json()["pdf_sha256"] == hashlib.sha256(pdf_bytes).hexdigest()
-    assert generated.json()["pdf_template_version"] == "a4-purchase-order-v6"
+    assert generated.json()["pdf_template_version"] == PURCHASE_ORDER_TEMPLATE_VERSION
     assert duplicate.status_code == 200
     assert duplicate.json()["pdf_sha256"] == generated.json()["pdf_sha256"]
     assert download.status_code == 200

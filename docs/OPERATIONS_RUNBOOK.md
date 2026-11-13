@@ -33,7 +33,7 @@ The reverse proxy must terminate HTTPS, forward only the configured public origi
 
 ## Dependency advisory review
 
-The frontend is pinned to the official supported Next.js 15.5.24 maintenance patch. On 2026-09-16, `npm audit` reported one moderate Next.js finding and one high PostCSS finding because that supported Next.js line bundles PostCSS 8.4.31; npm offered a fix only through Next.js 16.3.5, which is a major upgrade. The project does not silently take that breaking upgrade. The CI gate fails critical findings and unexpected high findings, while surfacing this reviewed exception for an explicit future framework decision. The non-major `sharp` fix was applied to the lockfile.
+The frontend is pinned to the patched Next.js 15.5.29 maintenance release. On 2026-11-10, `npm audit` still reported one high PostCSS finding because that supported Next.js line bundles PostCSS 8.4.31; npm offered a fix only through a Next.js 16 major upgrade. The project does not silently take that breaking upgrade. The CI gate fails critical findings and unexpected high findings while surfacing this reviewed exception for an explicit future framework decision. Compatible lockfile updates resolved the reported Next.js, `brace-expansion`, `sharp`, and `source-map-js` advisories.
 
 ## Backup and recovery
 

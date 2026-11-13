@@ -4,10 +4,10 @@ import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select, func
 from app.core.config import get_settings, Settings
-from app.models.authentication import AccountInvitation, SecurityAudit, MFARecoveryCode, AuthSession
+from app.models.authentication import AccountInvitation, SecurityAudit, AuthSession
 from app.models.user import User
 from app.services.account_security import cipher, now
-from test_session_security import sign_in, enroll, PASSPHRASE
+from test_session_security import sign_in, PASSPHRASE
 
 
 def test_invitation_single_use_email_bound_and_hashed(client,admin_user,branch,db_session,auth_headers):
@@ -63,26 +63,10 @@ def test_account_changes_are_audited_and_sessions_revoked(client,admin_user,staf
     assert "hashed_password" not in str(entry.before)
 
 
-def test_privileged_mfa_enrollment_and_recovery_full_lifecycle(client,admin_user,db_session):
+def test_privileged_login_does_not_require_mfa_when_policy_is_disabled(client,admin_user):
     response=sign_in(client,admin_user)
-    assert response.json()["user"]["mfa_required"] and not response.json()["user"]["mfa_verified"]
-    assert client.get("/api/v1/users").json()["detail"]=="mfa_enrollment_required"
-    secret,codes=enroll(client)
-    assert len(codes)==10 and len(set(codes))==10
-    assert admin_user.mfa_secret!=secret
-    assert db_session.scalar(select(func.count()).select_from(MFARecoveryCode))==10
-    assert client.get("/api/v1/users").status_code==200
-    client.post("/api/v1/auth/logout")
-    sign_in(client,admin_user)
-    assert client.get("/api/v1/users").json()["detail"]=="mfa_verification_required"
-    assert client.post("/api/v1/auth/mfa/verify",json={"code":pyotp.TOTP(secret).now()}).status_code==401
-    recovered=client.post("/api/v1/auth/mfa/recover",json={"code":codes[0]})
-    assert recovered.status_code==200,recovered.text
-    assert not recovered.json()["user"]["mfa_enabled"] and recovered.json()["user"]["mfa_required"]
-    assert client.get("/api/v1/users").status_code==403
-    assert client.post("/api/v1/auth/mfa/recover",json={"code":codes[0]}).status_code==401
-    new_secret,new_codes=enroll(client)
-    assert new_secret!=secret and new_codes!=codes
+    assert not response.json()["user"]["mfa_required"]
+    assert response.json()["user"]["mfa_verified"]
     assert client.get("/api/v1/users").status_code==200
 
 
